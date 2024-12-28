@@ -1,16 +1,16 @@
-![image](https://github.com/user-attachments/assets/f0f9d683-2f38-4096-9a19-2d6b8d4e1aa2)
+![image](https://github.com/user-attachments/assets/909e1ec4-18d7-4f8e-82d7-4f0f74bb956a)
+# 更新：
+添加三种处理图片的方式,扩展,拉伸,裁剪
+优化拉伸算法,例如21x21拉伸成5倍像素的时候将会是20x20而不是25x25
+添加图像预处理选项,在更新像素倍数之前将多余的透明像素裁切掉
+优化jpg支持,解决jpg没有a通道引发的程序停止问题
+添加默认输出目录为桌面\output
+添加默认优化倍数为4x
+
 # 更新：
 添加GUI.本程序可以任意调整图片长宽的倍数，在游戏素材上经常会使用4x像素的素材该程序为应对此需求而来。
 
 # 说明
-resizepic.exe由ROOT_folder.py编译，用来将奇数的图片像素拉伸为偶数，不是裁剪，resizepic.exe放入需要更改像素的图片的文件夹内双击执行，生成后的文件会保存在当前目录的output文件下。
-
-main.py是另一个变体，输入文件夹是当前程序所在的文件夹下的input文件夹，输出的文件夹是当前程序所在的文件夹下的output文件夹。
-
-2-64xpixel.py用于快速生成特定倍数图片
-
-Variable_pixels.py是可以调整倍率的无gui程序
-
-vpgui.py是完整gui程序
+本程序用来优化图像倍数,比如用来将奇数的图片像素拉伸为偶数，或者为奇数像素添加一列透明像素使其变为偶数.
 
 test下是三张测试用图片
