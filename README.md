@@ -1,4 +1,8 @@
 ![image](https://github.com/user-attachments/assets/909e1ec4-18d7-4f8e-82d7-4f0f74bb956a)
+
+#  24/2/12更新：
+添加config.ini配置文件,记录上一次配置的参数
+
 #  24/12/28更新：
 1.添加三种处理图片的方式,扩展,拉伸,裁剪
 
