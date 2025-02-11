@@ -1,10 +1,91 @@
 import os
 import os.path
 import winreg
+import configparser
+import tkinter as tk
 from tkinter import Tk, Label, Entry, Button, filedialog, StringVar, OptionMenu, BooleanVar, Checkbutton
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image
 from tkinter import ttk
+
+def read_config():
+    config = configparser.ConfigParser()
+    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    
+    # 设置默认值
+    default_config = {
+        'DefaultInFolder': os.path.join(get_desktop_path(), "input"),
+        'DefaultOutFolder': os.path.join(get_desktop_path(), "output"),
+        'DefaulMultiplied': '2',
+        'DefaulMode': 'Crop',
+        'DefaulPretrimState': '1'
+    }
+    
+    if not os.path.exists(config_path):
+        config['DEFAULT'] = default_config
+        with open(config_path, 'w', encoding='utf-8') as f:
+            config.write(f)
+    else:
+        config.read(config_path, encoding='utf-8')
+        # 确保所有键都存在
+        for key, value in default_config.items():
+            if key not in config['DEFAULT']:
+                config['DEFAULT'][key] = value
+    
+    return config['DEFAULT']
+
+def handle_drop(entry, event):
+    print(f"Handling drop event...")
+    
+    try:
+        data = event.data
+        if isinstance(data, bytes):
+            data = data.decode('utf-8')
+        
+        # 清理路径字符串
+        data = data.strip('{}').strip('"')
+        data = os.path.normpath(data)  # 标准化路径
+        print(f"Processed path: {data}")
+        
+        # 检查并处理路径
+        if os.path.exists(data):
+            if os.path.isdir(data):
+                entry.delete(0, tk.END)
+                entry.insert(0, data)
+                print(f"Updated entry with directory: {data}")
+            elif os.path.isfile(data):
+                folder = os.path.dirname(data)
+                entry.delete(0, tk.END)
+                entry.insert(0, folder)
+                print(f"Updated entry with parent directory: {folder}")
+            
+            # 强制更新Entry和整个窗口
+            entry.update()
+            root.update_idletasks()
+            
+            # 保存配置
+            save_config()
+            print("Configuration saved")
+            
+        else:
+            print(f"Invalid path: {data}")
+    
+    except Exception as e:
+        print(f"Error in handle_drop: {str(e)}")
+
+def save_config():
+    config = configparser.ConfigParser()
+    config['DEFAULT'] = {
+        'DefaultInFolder': input_folder_entry.get(),
+        'DefaultOutFolder': output_folder_entry.get(),
+        'DefaulMultiplied': multiple_entry.get(),
+        'DefaulMode': method_var.get(),
+        'DefaulPretrimState': '1' if trim_var.get() else '0'
+    }
+    
+    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    with open(config_path, 'w') as f:
+        config.write(f)
 
 def get_desktop_path():
     try:
@@ -22,20 +103,7 @@ def get_desktop_path():
         # 如果获取失败，返回默认桌面路径
         return os.path.join(os.path.expanduser("~"), "Desktop")
 
-def handle_drop(entry, event):
-    # 处理拖拽的文件或文件夹
-    data = event.data
-    # 移除可能的大括号和引号
-    data = data.strip('{}').strip('"')
-    # 如果是文件夹路径，直接使用
-    if os.path.isdir(data):
-        entry.delete(0, 'end')
-        entry.insert(0, data)
-    # 如果是文件路径，使用其所在文件夹
-    elif os.path.isfile(data):
-        folder = os.path.dirname(data)
-        entry.delete(0, 'end')
-        entry.insert(0, folder)
+
 
 def adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled):
     if not os.path.exists(output_folder):
@@ -64,7 +132,7 @@ def adjust_image_size(input_folder, output_folder, multiple, method, progress_ba
                     print(f"Warning: Could not trim image {filename}: {e}")
             
             # 如果是扩展模式但还不是 RGBA，转换为 RGBA
-            elif method == "扩展" and img.mode != 'RGBA':
+            elif method == "Extend" and img.mode != 'RGBA':
                 img = img.convert('RGBA')
 
             width, height = img.size
@@ -80,7 +148,7 @@ def adjust_image_size(input_folder, output_folder, multiple, method, progress_ba
                     return lower
                 return upper
 
-            if method == "拉伸":
+            if method == "Stretch":
                 # 对宽度和高度分别计算最优尺寸
                 new_width = get_optimal_size(width)
                 new_height = get_optimal_size(height)
@@ -89,12 +157,12 @@ def adjust_image_size(input_folder, output_folder, multiple, method, progress_ba
                 new_width = (width + multiple - 1) // multiple * multiple
                 new_height = (height + multiple - 1) // multiple * multiple
 
-            if method == "扩展":
+            if method == "Extend":
                 new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
                 new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
-            elif method == "拉伸":
+            elif method == "Stretch":
                 new_img = img.resize((new_width, new_height), Image.LANCZOS)
-            elif method == "裁切":
+            elif method == "Crop":
                 left = (width - new_width) // 2
                 top = (height - new_height) // 2
                 right = (width + new_width) // 2
@@ -142,6 +210,9 @@ def execute():
     trim_enabled = trim_var.get()
     adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled)
     
+    adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled)
+    save_config()  # 保存当前设置到配置文件
+
     # 任务完成后显示 Done!
     progress_label.config(text="Done!")
 
@@ -149,39 +220,41 @@ def execute():
 root = TkinterDnD.Tk()
 root.title("Pixel magnification adjustment")
 
+# 读取配置
+config = read_config()
+
+
+
 # 输入文件夹
 Label(root, text="input:").grid(row=0, column=0, padx=10, pady=5, sticky='w')
 input_folder_entry = Entry(root, width=40)
 input_folder_entry.grid(row=0, column=1, padx=10, pady=5)
+input_folder_entry.insert(0, config.get('DefaultInFolder', os.path.join(get_desktop_path(), "input")))
 input_folder_entry.drop_target_register(DND_FILES)
-input_folder_entry.dnd_bind('<<Drop>>', lambda e: handle_drop(input_folder_entry, e))
+input_folder_entry.dnd_bind('<<Drop>>', lambda e: (handle_drop(input_folder_entry, e), root.update()))
 Button(root, text="choose", command=select_input_folder).grid(row=0, column=2, padx=10, pady=5, sticky='e')
 
 # 输出文件夹
 Label(root, text="output:").grid(row=1, column=0, padx=10, pady=5, sticky='w')
 output_folder_entry = Entry(root, width=40)
 output_folder_entry.grid(row=1, column=1, padx=10, pady=5)
-
-# 设置默认输出路径为桌面的 output 文件夹
-default_output = os.path.join(get_desktop_path(), "output")
-output_folder_entry.insert(0, default_output)
-
+output_folder_entry.insert(0, config.get('DefaultOutFolder', os.path.join(get_desktop_path(), "output")))
 output_folder_entry.drop_target_register(DND_FILES)
-output_folder_entry.dnd_bind('<<Drop>>', lambda e: handle_drop(output_folder_entry, e))
+output_folder_entry.dnd_bind('<<Drop>>', lambda e: (handle_drop(output_folder_entry, e), root.update()))
 Button(root, text="choose", command=select_output_folder).grid(row=1, column=2, padx=10, pady=5, sticky='e')
 
 # 倍率
 Label(root, text="multiplier:").grid(row=2, column=0, padx=10, pady=5, sticky='w')
 multiple_entry = Entry(root, width=40)
-multiple_entry.insert(0, "4")  # 使用 insert 方法设置默认值
+multiple_entry.insert(0, config.get('DefaulMultiplied', "4"))
 multiple_entry.grid(row=2, column=1, padx=10, pady=5)
 
 # 处理方式
 Label(root, text="method:").grid(row=3, column=0, padx=10, pady=5, sticky='w')
 method_var = StringVar(root)
 method_combo = ttk.Combobox(root, textvariable=method_var, width=37, state="readonly")
-method_combo['values'] = ("扩展", "拉伸", "裁切")
-method_combo.set("扩展")  # 设置默认值
+method_combo['values'] = ("Extend", "Stretch", "Crop")
+method_combo.set(config.get('DefaulMode', "Extend")) # 设置默认值
 method_combo.grid(row=3, column=1, padx=10, pady=5)
 
 # 进度条
@@ -193,6 +266,7 @@ progress_bar.grid(row=4, column=1, padx=10, pady=5)
 trim_var = BooleanVar()
 trim_checkbox = Checkbutton(root, text="Pretrim", variable=trim_var)
 trim_checkbox.grid(row=3, column=2, padx=10, pady=5, sticky='e')
+trim_var.set(config.get('DefaulPretrimState', "0") == "1")
 
 # 在文件开头的界面元素定义部分（在创建进度条之后）添加：
 progress_label = Label(root, text="")
