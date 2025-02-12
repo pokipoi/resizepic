@@ -34,6 +34,51 @@ def read_config():
     
     return config['DEFAULT']
 
+def save_config():
+    config = configparser.ConfigParser()
+    try:
+        # 使用 encode 和 decode 处理路径字符串
+        config['DEFAULT'] = {
+            'DefaultInFolder': input_folder_entry.get().encode('utf-8').decode('utf-8'),
+            'DefaultOutFolder': output_folder_entry.get().encode('utf-8').decode('utf-8'),
+            'DefaulMultiplied': multiple_entry.get(),
+            'DefaulMode': method_var.get(),
+            'DefaulPretrimState': '1' if trim_var.get() else '0'
+        }
+        
+        config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+        with open(config_path, 'w', encoding='utf-8') as f:
+            config.write(f)
+    except Exception as e:
+        print(f"Error saving config: {e}")
+def open_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    try:
+        # Store original modification time
+        original_mtime = os.path.getmtime(config_path) if os.path.exists(config_path) else None
+        
+        # Open config in Notepad
+        os.system(f'notepad "{config_path}"')
+        
+        # Wait for Notepad to close and check if file was modified
+        if original_mtime and os.path.exists(config_path):
+            new_mtime = os.path.getmtime(config_path)
+            if new_mtime > original_mtime:
+                # Reload configuration
+                config = read_config()
+                # Update UI with new values
+                input_folder_entry.delete(0, tk.END)
+                input_folder_entry.insert(0, config.get('DefaultInFolder'))
+                output_folder_entry.delete(0, tk.END)
+                output_folder_entry.insert(0, config.get('DefaultOutFolder'))
+                multiple_entry.delete(0, tk.END)
+                multiple_entry.insert(0, config.get('DefaulMultiplied'))
+                method_var.set(config.get('DefaulMode'))
+                trim_var.set(config.get('DefaulPretrimState') == '1')
+                
+    except Exception as e:
+        print(f"Error handling config file: {e}")
+
 def handle_drop(entry, event):
     print(f"Handling drop event...")
     
@@ -73,19 +118,6 @@ def handle_drop(entry, event):
     except Exception as e:
         print(f"Error in handle_drop: {str(e)}")
 
-def save_config():
-    config = configparser.ConfigParser()
-    config['DEFAULT'] = {
-        'DefaultInFolder': input_folder_entry.get(),
-        'DefaultOutFolder': output_folder_entry.get(),
-        'DefaulMultiplied': multiple_entry.get(),
-        'DefaulMode': method_var.get(),
-        'DefaulPretrimState': '1' if trim_var.get() else '0'
-    }
-    
-    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
-    with open(config_path, 'w') as f:
-        config.write(f)
 
 def get_desktop_path():
     try:
@@ -219,6 +251,12 @@ def execute():
 # 创建主窗口
 root = TkinterDnD.Tk()
 root.title("Pixel magnification adjustment")
+try:
+    icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+    if os.path.exists(icon_path):
+        root.iconbitmap(icon_path)
+except Exception as e:
+    print(f"Error loading icon: {e}")
 
 # 读取配置
 config = read_config()
@@ -266,13 +304,14 @@ progress_bar.grid(row=4, column=1, padx=10, pady=5)
 trim_var = BooleanVar()
 trim_checkbox = Checkbutton(root, text="Pretrim", variable=trim_var)
 trim_checkbox.grid(row=3, column=2, padx=10, pady=5, sticky='e')
-trim_var.set(config.get('DefaulPretrimState', "0") == "1")
+trim_var.set(config.get('DefaulPretrimState'))
 
 # 在文件开头的界面元素定义部分（在创建进度条之后）添加：
 progress_label = Label(root, text="")
 progress_label.grid(row=4, column=2, padx=10, pady=5, sticky='e')
 
 # 执行按钮
-Button(root, text="run", command=execute, width=40).grid(row=5, column=1, padx=10, pady=5)
+Button(root, text="run", command=execute, width=35).grid(row=5, column=1, padx=10, pady=5)
+Button(root, text="config", command=open_config, width=8).grid(row=5, column=2, padx=10, pady=5)
 
 root.mainloop()
