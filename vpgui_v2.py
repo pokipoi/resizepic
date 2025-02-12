@@ -1,3 +1,7 @@
+# Add these lines at the very beginning of your script, right after the imports:
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import os
 import os.path
 import winreg
@@ -7,6 +11,7 @@ from tkinter import Tk, Label, Entry, Button, filedialog, StringVar, OptionMenu,
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image
 from tkinter import ttk
+
 
 def read_config():
     config = configparser.ConfigParser()
@@ -18,7 +23,8 @@ def read_config():
         'DefaultOutFolder': os.path.join(get_desktop_path(), "output"),
         'DefaulMultiplied': '2',
         'DefaulMode': 'Crop',
-        'DefaulPretrimState': '1'
+        'DefaulPretrimState': '1',
+        'ProcessSubfolders': '0' 
     }
     
     if not os.path.exists(config_path):
@@ -37,13 +43,13 @@ def read_config():
 def save_config():
     config = configparser.ConfigParser()
     try:
-        # 使用 encode 和 decode 处理路径字符串
         config['DEFAULT'] = {
             'DefaultInFolder': input_folder_entry.get().encode('utf-8').decode('utf-8'),
             'DefaultOutFolder': output_folder_entry.get().encode('utf-8').decode('utf-8'),
             'DefaulMultiplied': multiple_entry.get(),
             'DefaulMode': method_var.get(),
-            'DefaulPretrimState': '1' if trim_var.get() else '0'
+            'DefaulPretrimState': '1' if trim_var.get() else '0',
+            'ProcessSubfolders': '1' if subfolder_var.get() else '0'  # 添加新选项
         }
         
         config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
@@ -119,6 +125,7 @@ def handle_drop(entry, event):
         print(f"Error in handle_drop: {str(e)}")
 
 
+
 def get_desktop_path():
     try:
         # 打开注册表键
@@ -134,8 +141,180 @@ def get_desktop_path():
         print(f"Error getting desktop path: {e}")
         # 如果获取失败，返回默认桌面路径
         return os.path.join(os.path.expanduser("~"), "Desktop")
+    
+def process_folder(input_path, output_path, method, multiple, trim_enabled, process_subfolders=False):
+    # 处理当前文件夹中的图片
+    for item in os.listdir(input_path):
+        item_path = os.path.join(input_path, item)
+        if os.path.isfile(item_path) and item.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+            relative_path = os.path.relpath(os.path.dirname(item_path), input_path)
+            output_dir = os.path.join(output_path, relative_path)
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, item)
+            
+            with Image.open(item_path) as img:
+                adjust_image_size(img, output_file, method, multiple, trim_enabled)
+        
+        # 如果是文件夹且启用了子文件夹处理
+        elif os.path.isdir(item_path) and process_subfolders:
+            new_output_path = os.path.join(output_path, item)
+            process_folder(item_path, new_output_path, method, multiple, trim_enabled, process_subfolders)
 
 
+# 在 execute() 函数后添加新的快速处理函数
+def quick_process(files):
+    try:
+        method = method_var.get()
+        multiple = int(multiple_entry.get())
+        trim_enabled = trim_var.get()
+        process_subfolders = subfolder_var.get()
+        
+        processed_any = False  # 添加标志来追踪是否处理了任何文件
+        
+        for file_path in files:
+            if os.path.isfile(file_path) and file_path.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                processed_any = True
+                with Image.open(file_path) as img:
+                    # 处理图片
+                    width, height = img.size
+                    new_width = (width + multiple - 1) // multiple * multiple
+                    new_height = (height + multiple - 1) // multiple * multiple
+                    
+                    if method == "Extend":
+                        new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
+                        new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
+                    elif method == "Stretch":
+                        new_img = img.resize((new_width, new_height), Image.LANCZOS)
+                    elif method == "Crop":
+                        left = (width - new_width) // 2
+                        top = (height - new_height) // 2
+                        right = (width + new_width) // 2
+                        bottom = (height + new_height) // 2
+                        new_img = img.crop((left, top, right, bottom))
+
+                    # 保存前处理格式
+                    if file_path.lower().endswith(('.jpg', '.jpeg')):
+                        if new_img.mode == 'RGBA':
+                            background = Image.new('RGB', new_img.size, (255, 255, 255))
+                            background.paste(new_img, mask=new_img.split()[3])
+                            new_img = background
+                    
+                    new_img.save(file_path)
+            
+            elif os.path.isdir(file_path):
+                if process_subfolders:
+                    for root_dir, _, files in os.walk(file_path):
+                        for filename in files:
+                            if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                                processed_any = True
+                                img_path = os.path.join(root_dir, filename)
+                                with Image.open(img_path) as img:
+                                    # 处理图片
+                                    width, height = img.size
+                                    new_width = (width + multiple - 1) // multiple * multiple
+                                    new_height = (height + multiple - 1) // multiple * multiple
+                                    
+                                    if method == "Extend":
+                                        new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
+                                        new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
+                                    elif method == "Stretch":
+                                        new_img = img.resize((new_width, new_height), Image.LANCZOS)
+                                    elif method == "Crop":
+                                        left = (width - new_width) // 2
+                                        top = (height - new_height) // 2
+                                        right = (width + new_width) // 2
+                                        bottom = (height + new_height) // 2
+                                        new_img = img.crop((left, top, right, bottom))
+
+                                    # 保存前处理格式
+                                    if img_path.lower().endswith(('.jpg', '.jpeg')):
+                                        if new_img.mode == 'RGBA':
+                                            background = Image.new('RGB', new_img.size, (255, 255, 255))
+                                            background.paste(new_img, mask=new_img.split()[3])
+                                            new_img = background
+                                    
+                                    new_img.save(img_path)
+                else:
+                    # 只处理当前文件夹中的图片
+                    for filename in os.listdir(file_path):
+                        if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                            processed_any = True
+                            img_path = os.path.join(file_path, filename)
+                            with Image.open(img_path) as img:
+                                # 处理图片代码与上面相同
+                                width, height = img.size
+                                new_width = (width + multiple - 1) // multiple * multiple
+                                new_height = (height + multiple - 1) // multiple * multiple
+                                
+                                if method == "Extend":
+                                    new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
+                                    new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
+                                elif method == "Stretch":
+                                    new_img = img.resize((new_width, new_height), Image.LANCZOS)
+                                elif method == "Crop":
+                                    left = (width - new_width) // 2
+                                    top = (height - new_height) // 2
+                                    right = (width + new_width) // 2
+                                    bottom = (height + new_height) // 2
+                                    new_img = img.crop((left, top, right, bottom))
+
+                                # 保存前处理格式
+                                if img_path.lower().endswith(('.jpg', '.jpeg')):
+                                    if new_img.mode == 'RGBA':
+                                        background = Image.new('RGB', new_img.size, (255, 255, 255))
+                                        background.paste(new_img, mask=new_img.split()[3])
+                                        new_img = background
+                                
+                                new_img.save(img_path)
+        
+        if processed_any:
+            progress_label.config(text="Quick process done!")
+        else:
+            progress_label.config(text="No images found!")
+            
+    except Exception as e:
+        print(f"Error in quick process: {e}")
+        progress_label.config(text="Error!")
+
+def handle_quick_drop(event):
+    try:
+        data = event.data
+        if isinstance(data, str):
+            # 处理 Windows 拖放数据格式
+            if data.startswith('{') and data.endswith('}'):
+                data = data[1:-1]
+            
+            paths = []
+            if '"' in data:
+                # 使用 os.path.normpath 标准化路径
+                parts = data.split('" "')
+                paths = [os.path.normpath(p.strip('"')) for p in parts]
+            else:
+                paths = [os.path.normpath(data)]
+            
+            # 使用 os.path.abspath 获取绝对路径
+            files = [os.path.abspath(p) for p in paths]
+            
+            valid_files = []
+            for f in files:
+                try:
+                    # 检查文件是否存在，使用 encode/decode 处理中文路径
+                    if os.path.exists(f):
+                        valid_files.append(f)
+                except UnicodeEncodeError:
+                    # 如果出现编码错误，尝试使用 utf-8 编码
+                    encoded_path = f.encode('utf-8')
+                    if os.path.exists(encoded_path.decode('utf-8')):
+                        valid_files.append(encoded_path.decode('utf-8'))
+            
+            if valid_files:
+                quick_process(valid_files)
+            else:
+                progress_label.config(text="No valid files!")
+                
+    except Exception as e:
+        progress_label.config(text="Error!")
+        print(f"Error handling quick drop: {str(e)}")
 
 def adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled):
     if not os.path.exists(output_folder):
@@ -306,9 +485,21 @@ trim_checkbox = Checkbutton(root, text="Pretrim", variable=trim_var)
 trim_checkbox.grid(row=3, column=2, padx=10, pady=5, sticky='e')
 trim_var.set(config.get('DefaulPretrimState'))
 
+# 在创建trim复选框后添加
+subfolder_var = BooleanVar()
+subfolder_checkbox = Checkbutton(root, text="Process Subfolders", variable=subfolder_var)
+subfolder_checkbox.grid(row=2, column=2, padx=10, pady=5, sticky='e')
+subfolder_var.set(config.get('ProcessSubfolders') == '1')
+
 # 在文件开头的界面元素定义部分（在创建进度条之后）添加：
 progress_label = Label(root, text="")
 progress_label.grid(row=4, column=2, padx=10, pady=5, sticky='e')
+
+# 在创建run按钮之前添加快速处理区域
+quick_drop_frame = Label(root, text="直接输出", relief="solid", width=10, height=2)
+quick_drop_frame.grid(row=5, column=0, padx=10, pady=5, sticky='w')
+quick_drop_frame.drop_target_register(DND_FILES)
+quick_drop_frame.dnd_bind('<<Drop>>', handle_quick_drop)
 
 # 执行按钮
 Button(root, text="run", command=execute, width=35).grid(row=5, column=1, padx=10, pady=5)
