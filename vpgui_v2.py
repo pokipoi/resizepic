@@ -3,6 +3,8 @@ import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import os
+import time
+import re
 import os.path
 import winreg
 import configparser
@@ -172,10 +174,15 @@ def quick_process(files):
         processed_any = False  # 添加标志来追踪是否处理了任何文件
         
         for file_path in files:
+            print(f"Debug: Processing file: {file_path}")  # 打印处理的文件路径
+            
             if os.path.isfile(file_path) and file_path.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                print(f"Debug: Valid image file found: {file_path}")  # 打印有效文件
+                
                 processed_any = True
                 with Image.open(file_path) as img:
-                    # 处理图片
+                    print(f"Debug: Image size: {img.size}")  # 打印图像大小
+                    
                     width, height = img.size
                     new_width = (width + multiple - 1) // multiple * multiple
                     new_height = (height + multiple - 1) // multiple * multiple
@@ -199,15 +206,20 @@ def quick_process(files):
                             background.paste(new_img, mask=new_img.split()[3])
                             new_img = background
                     
+                    print(f"Debug: Saving image: {file_path}")  # 打印保存文件路径
                     new_img.save(file_path)
             
             elif os.path.isdir(file_path):
+                print(f"Debug: Directory found: {file_path}")  # 打印文件夹路径
+                
                 if process_subfolders:
                     for root_dir, _, files in os.walk(file_path):
                         for filename in files:
                             if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                                 processed_any = True
                                 img_path = os.path.join(root_dir, filename)
+                                print(f"Debug: Processing image in subfolder: {img_path}")
+                                
                                 with Image.open(img_path) as img:
                                     # 处理图片
                                     width, height = img.size
@@ -240,6 +252,7 @@ def quick_process(files):
                         if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                             processed_any = True
                             img_path = os.path.join(file_path, filename)
+                            print(f"Debug: Processing image: {img_path}")  # 打印正在处理的图像路径
                             with Image.open(img_path) as img:
                                 # 处理图片代码与上面相同
                                 width, height = img.size
@@ -276,36 +289,49 @@ def quick_process(files):
         print(f"Error in quick process: {e}")
         progress_label.config(text="Error!")
 
+
+
+import re
+import os
+
 def handle_quick_drop(event):
     try:
         data = event.data
         if isinstance(data, str):
-            # 处理 Windows 拖放数据格式
-            if data.startswith('{') and data.endswith('}'):
-                data = data[1:-1]
-            
+            # 使用正则表达式匹配用 {} 包裹的路径或不含空格的路径
+            # 模式解释：
+            #   {([^}]+)} 匹配被大括号包裹的部分（捕获括号内的文本）
+            #   | 或
+            #   (\S+) 匹配不包含空格的文本
+            matches = re.findall(r'{([^}]+)}|(\S+)', data)
             paths = []
-            if '"' in data:
-                # 使用 os.path.normpath 标准化路径
-                parts = data.split('" "')
-                paths = [os.path.normpath(p.strip('"')) for p in parts]
-            else:
-                paths = [os.path.normpath(data)]
+            # 根据匹配结果构造路径列表
+            for grp in matches:
+                if grp[0]:
+                    paths.append(grp[0])
+                else:
+                    paths.append(grp[1])
             
-            # 使用 os.path.abspath 获取绝对路径
+            # 标准化路径
+            paths = [os.path.normpath(p) for p in paths]
+            # 获取绝对路径
             files = [os.path.abspath(p) for p in paths]
-            
+
+
+            # 对每个有效的文件进行处理，处理编码错误问题
             valid_files = []
             for f in files:
                 try:
-                    # 检查文件是否存在，使用 encode/decode 处理中文路径
                     if os.path.exists(f):
                         valid_files.append(f)
                 except UnicodeEncodeError:
-                    # 如果出现编码错误，尝试使用 utf-8 编码
-                    encoded_path = f.encode('utf-8')
-                    if os.path.exists(encoded_path.decode('utf-8')):
-                        valid_files.append(encoded_path.decode('utf-8'))
+                    try:
+                        encoded_path = f.encode('utf-8')
+                        decoded_path = encoded_path.decode('utf-8')
+                        if os.path.exists(decoded_path):
+                            valid_files.append(decoded_path)
+                    except Exception as e:
+                        print(f"Error processing file {f}: {e}")
             
             if valid_files:
                 quick_process(valid_files)
@@ -313,9 +339,9 @@ def handle_quick_drop(event):
                 progress_label.config(text="No valid files!")
                 
     except Exception as e:
-        progress_label.config(text="Error!")
+        progress_label.config(text=f"Error handling quick drop: {str(e)}")
         print(f"Error handling quick drop: {str(e)}")
-
+    
 def adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
