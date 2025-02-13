@@ -171,6 +171,29 @@ def quick_process(files):
         trim_enabled = trim_var.get()
         process_subfolders = subfolder_var.get()
         
+                # 预计算待处理图片总数，用于设置进度条
+        def count_images(files_list):
+            count = 0
+            for file_path in files_list:
+                if os.path.isfile(file_path) and file_path.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                    count += 1
+                elif os.path.isdir(file_path):
+                    for root_dir, _, filenames in os.walk(file_path):
+                        for filename in filenames:
+                            if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                                count += 1
+            return count
+        
+        # 重置进度条
+        progress_bar['value'] = 0
+        progress_label.config(text="")  # 清除之前的完成提示
+        root.update_idletasks()
+
+        total_files = count_images(files)
+        progress_bar.config(maximum=total_files)
+        progress_bar['value'] = 0
+        current_progress = 0
+        
         processed_any = False  # 添加标志来追踪是否处理了任何文件
         
         for file_path in files:
@@ -208,7 +231,11 @@ def quick_process(files):
                     
                     print(f"Debug: Saving image: {file_path}")  # 打印保存文件路径
                     new_img.save(file_path)
-            
+                
+                current_progress += 1
+                progress_bar['value'] = current_progress
+                root.update_idletasks()
+
             elif os.path.isdir(file_path):
                 print(f"Debug: Directory found: {file_path}")  # 打印文件夹路径
                 
@@ -246,6 +273,10 @@ def quick_process(files):
                                             new_img = background
                                     
                                     new_img.save(img_path)
+
+                                current_progress += 1
+                                progress_bar['value'] = current_progress
+                                root.update_idletasks()
                 else:
                     # 只处理当前文件夹中的图片
                     for filename in os.listdir(file_path):
@@ -279,7 +310,9 @@ def quick_process(files):
                                         new_img = background
                                 
                                 new_img.save(img_path)
-        
+                            current_progress += 1
+                            progress_bar['value'] = current_progress
+                            root.update_idletasks()                           
         if processed_any:
             progress_label.config(text="Quick process done!")
         else:
