@@ -1,7 +1,6 @@
 # Add these lines at the very beginning of your script, right after the imports:
 import sys
 import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import os
 import time
 import re
@@ -13,6 +12,7 @@ from tkinter import Tk, Label, Entry, Button, filedialog, StringVar, OptionMenu,
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image
 from tkinter import ttk
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 
 def read_config():
@@ -130,7 +130,50 @@ def handle_drop(entry, event):
     except Exception as e:
         print(f"Error in handle_drop: {str(e)}")
 
+def process_image(img, multiple, method, trim_enabled):
+    """
+    对单个 PIL.Image 对象进行处理，返回处理后的图像。
+    """
+    # 如果启用 pretrim，则转换为 RGBA 并裁剪透明区域
+    if trim_enabled:
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        try:
+            alpha = img.getchannel('A')
+            bbox = alpha.getbbox()
+            if bbox:
+                img = img.crop(bbox)
+        except Exception as e:
+            print(f"Warning: Could not trim image: {e}")
+    
+    width, height = img.size
+    if method == "Stretch":
+        # 支持宽高分别调整到最优尺寸（或简单调用 resize）
+        def get_optimal_size(dimension):
+            lower = (dimension // multiple) * multiple
+            upper = lower + multiple
+            return lower if abs(dimension - lower) <= abs(dimension - upper) else upper
+        new_width = get_optimal_size(width)
+        new_height = get_optimal_size(height)
+    else:
+        new_width = (width + multiple - 1) // multiple * multiple
+        new_height = (height + multiple - 1) // multiple * multiple
 
+    if method == "Extend":
+        new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
+        new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
+    elif method == "Stretch":
+        new_img = img.resize((new_width, new_height), Image.LANCZOS)
+    elif method == "Crop":
+        # Crop: 裁剪中心区域
+        left = (width - new_width) // 2
+        top = (height - new_height) // 2
+        right = (width + new_width) // 2
+        bottom = (height + new_height) // 2
+        new_img = img.crop((left, top, right, bottom))
+    
+    # 如果输出 JPEG，而图像是RGBA，则转换为RGB（可在保存时再转换）
+    return new_img
 
 def get_desktop_path():
     try:
@@ -149,9 +192,10 @@ def get_desktop_path():
         return os.path.join(os.path.expanduser("~"), "Desktop")
     
 def process_folder(input_path, output_path, method, multiple, trim_enabled, process_subfolders=False):
-    # 处理当前文件夹中的图片
+    # 遍历当前文件夹中的所有项
     for item in os.listdir(input_path):
         item_path = os.path.join(input_path, item)
+        # 如果是图片文件
         if os.path.isfile(item_path) and item.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
             relative_path = os.path.relpath(os.path.dirname(item_path), input_path)
             output_dir = os.path.join(output_path, relative_path)
@@ -159,32 +203,47 @@ def process_folder(input_path, output_path, method, multiple, trim_enabled, proc
             output_file = os.path.join(output_dir, item)
             
             with Image.open(item_path) as img:
-                adjust_image_size(img, output_file, method, multiple, trim_enabled)
+                # 调用通用图像处理函数生成处理后的图像
+                new_img = process_image(img, multiple, method, trim_enabled)
+                
+                # 如果输出JPEG格式，而图像为RGBA，则转换为RGB
+                if output_file.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                    background = Image.new('RGB', new_img.size, (255, 255, 255))
+                    background.paste(new_img, mask=new_img.split()[3])
+                    new_img = background
+                    
+                new_img.save(output_file)
         
-        # 如果是文件夹且启用了子文件夹处理
+        # 如果是子文件夹且启用了处理子文件夹，则递归调用 process_folder
         elif os.path.isdir(item_path) and process_subfolders:
             new_output_path = os.path.join(output_path, item)
             process_folder(item_path, new_output_path, method, multiple, trim_enabled, process_subfolders)
-
-
 # 在 execute() 函数后添加新的快速处理函数
 def quick_process(files):
     try:
         method = method_var.get()
         multiple = int(multiple_entry.get())
-        trim_enabled = trim_var.get()   # 获取 trim_enabled 状态
+        trim_enabled = trim_var.get()   # 获取是否启用 pretrim
         process_subfolders = subfolder_var.get()
         
         # 预计算待处理图片总数，用于设置进度条
         def count_images(files_list):
             count = 0
             for file_path in files_list:
-                if os.path.isfile(file_path) and file_path.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                if os.path.isfile(file_path) and file_path.lower().endswith(
+                        ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                     count += 1
                 elif os.path.isdir(file_path):
-                    for root_dir, _, filenames in os.walk(file_path):
-                        for filename in filenames:
-                            if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                    if process_subfolders:
+                        for root_dir, _, filenames in os.walk(file_path):
+                            for filename in filenames:
+                                if filename.lower().endswith(
+                                        ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                                    count += 1
+                    else:
+                        for filename in os.listdir(file_path):
+                            if filename.lower().endswith(
+                                    ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                                 count += 1
             return count
         
@@ -199,137 +258,56 @@ def quick_process(files):
         
         for file_path in files:
             print(f"Debug: Processing file: {file_path}")
-            
-            if os.path.isfile(file_path) and file_path.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+            # 如果是图片文件
+            if os.path.isfile(file_path) and file_path.lower().endswith(
+                    ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                 processed_any = True
                 with Image.open(file_path) as img:
-                    # 如果启用 pretrim，则转换为 RGBA 并裁剪透明区域
-                    if trim_enabled:
-                        if img.mode != 'RGBA':
-                            img = img.convert('RGBA')
-                        try:
-                            alpha = img.getchannel('A')
-                            bbox = alpha.getbbox()
-                            if bbox:
-                                img = img.crop(bbox)
-                        except Exception as e:
-                            print(f"Warning: Could not trim image {file_path}: {e}")
-                    
-                    width, height = img.size
-                    new_width = (width + multiple - 1) // multiple * multiple
-                    new_height = (height + multiple - 1) // multiple * multiple
-                    
-                    if method == "Extend":
-                        new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
-                        new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
-                    elif method == "Stretch":
-                        new_img = img.resize((new_width, new_height), Image.LANCZOS)
-                    elif method == "Crop":
-                        left = (width - new_width) // 2
-                        top = (height - new_height) // 2
-                        right = (width + new_width) // 2
-                        bottom = (height + new_height) // 2
-                        new_img = img.crop((left, top, right, bottom))
-                    
-                    # 保存前处理 JPEG 格式（需转换为 RGB）
-                    if file_path.lower().endswith(('.jpg', '.jpeg')):
-                        if new_img.mode == 'RGBA':
-                            background = Image.new('RGB', new_img.size, (255, 255, 255))
-                            background.paste(new_img, mask=new_img.split()[3])
-                            new_img = background
-                    
+                    new_img = process_image(img, multiple, method, trim_enabled)
+                    # 针对 JPEG 格式转换（JPEG 不支持透明通道）
+                    if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                        background = Image.new('RGB', new_img.size, (255, 255, 255))
+                        background.paste(new_img, mask=new_img.split()[3])
+                        new_img = background
                     print(f"Debug: Saving image: {file_path}")
                     new_img.save(file_path)
-                    
                 current_progress += 1
                 progress_bar['value'] = current_progress
                 root.update_idletasks()
             
+            # 如果是文件夹
             elif os.path.isdir(file_path):
                 print(f"Debug: Directory found: {file_path}")
                 if process_subfolders:
                     for root_dir, _, filenames in os.walk(file_path):
                         for filename in filenames:
-                            if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                            if filename.lower().endswith(
+                                    ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                                 processed_any = True
                                 img_path = os.path.join(root_dir, filename)
                                 with Image.open(img_path) as img:
-                                    if trim_enabled:
-                                        if img.mode != 'RGBA':
-                                            img = img.convert('RGBA')
-                                        try:
-                                            alpha = img.getchannel('A')
-                                            bbox = alpha.getbbox()
-                                            if bbox:
-                                                img = img.crop(bbox)
-                                        except Exception as e:
-                                            print(f"Warning: Could not trim image {img_path}: {e}")
-                                    
-                                    width, height = img.size
-                                    new_width = (width + multiple - 1) // multiple * multiple
-                                    new_height = (height + multiple - 1) // multiple * multiple
-                                    
-                                    if method == "Extend":
-                                        new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
-                                        new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
-                                    elif method == "Stretch":
-                                        new_img = img.resize((new_width, new_height), Image.LANCZOS)
-                                    elif method == "Crop":
-                                        left = (width - new_width) // 2
-                                        top = (height - new_height) // 2
-                                        right = (width + new_width) // 2
-                                        bottom = (height + new_height) // 2
-                                        new_img = img.crop((left, top, right, bottom))
-                                    
-                                    if img_path.lower().endswith(('.jpg', '.jpeg')):
-                                        if new_img.mode == 'RGBA':
-                                            background = Image.new('RGB', new_img.size, (255, 255, 255))
-                                            background.paste(new_img, mask=new_img.split()[3])
-                                            new_img = background
-                                    
+                                    new_img = process_image(img, multiple, method, trim_enabled)
+                                    if img_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                                        background = Image.new('RGB', new_img.size, (255, 255, 255))
+                                        background.paste(new_img, mask=new_img.split()[3])
+                                        new_img = background
                                     new_img.save(img_path)
                                 current_progress += 1
                                 progress_bar['value'] = current_progress
                                 root.update_idletasks()
                 else:
+                    # 仅处理目录根下的图片
                     for filename in os.listdir(file_path):
-                        if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                        if filename.lower().endswith(
+                                ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                             processed_any = True
                             img_path = os.path.join(file_path, filename)
                             with Image.open(img_path) as img:
-                                if trim_enabled:
-                                    if img.mode != 'RGBA':
-                                        img = img.convert('RGBA')
-                                    try:
-                                        alpha = img.getchannel('A')
-                                        bbox = alpha.getbbox()
-                                        if bbox:
-                                            img = img.crop(bbox)
-                                    except Exception as e:
-                                        print(f"Warning: Could not trim image {img_path}: {e}")
-                                
-                                width, height = img.size
-                                new_width = (width + multiple - 1) // multiple * multiple
-                                new_height = (height + multiple - 1) // multiple * multiple
-                                
-                                if method == "Extend":
-                                    new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
-                                    new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
-                                elif method == "Stretch":
-                                    new_img = img.resize((new_width, new_height), Image.LANCZOS)
-                                elif method == "Crop":
-                                    left = (width - new_width) // 2
-                                    top = (height - new_height) // 2
-                                    right = (width + new_width) // 2
-                                    bottom = (height + new_height) // 2
-                                    new_img = img.crop((left, top, right, bottom))
-                                
-                                if img_path.lower().endswith(('.jpg', '.jpeg')):
-                                    if new_img.mode == 'RGBA':
-                                        background = Image.new('RGB', new_img.size, (255, 255, 255))
-                                        background.paste(new_img, mask=new_img.split()[3])
-                                        new_img = background
-                                
+                                new_img = process_image(img, multiple, method, trim_enabled)
+                                if img_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                                    background = Image.new('RGB', new_img.size, (255, 255, 255))
+                                    background.paste(new_img, mask=new_img.split()[3])
+                                    new_img = background
                                 new_img.save(img_path)
                             current_progress += 1
                             progress_bar['value'] = current_progress
@@ -392,86 +370,6 @@ def handle_quick_drop(event):
         progress_label.config(text=f"Error handling quick drop: {str(e)}")
         print(f"Error handling quick drop: {str(e)}")
     
-def adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled):
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-
-    files = [f for f in os.listdir(input_folder) if f.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp'))]
-    total_files = len(files)
-    progress_bar['maximum'] = total_files
-
-    for i, filename in enumerate(files):
-        file_path = os.path.join(input_folder, filename)
-        with Image.open(file_path) as img:
-            # 如果启用了 trim，确保图片是 RGBA 模式
-            if trim_enabled:
-                # 强制转换为 RGBA 模式
-                img = img.convert('RGBA')
-                try:
-                    # 获取 alpha 通道
-                    alpha = img.getchannel('A')
-                    # 获取非透明区域的边界框
-                    bbox = alpha.getbbox()
-                    if bbox:
-                        # 裁剪掉透明区域
-                        img = img.crop(bbox)
-                except Exception as e:
-                    print(f"Warning: Could not trim image {filename}: {e}")
-            
-            # 如果是扩展模式但还不是 RGBA，转换为 RGBA
-            elif method == "Extend" and img.mode != 'RGBA':
-                img = img.convert('RGBA')
-
-            width, height = img.size
-            
-            # 优化后的尺寸计算
-            def get_optimal_size(dimension):
-                # 计算向上和向下取整的倍数值
-                lower = (dimension // multiple) * multiple
-                upper = lower + multiple
-                
-                # 选择最接近原始尺寸的值
-                if abs(dimension - lower) <= abs(dimension - upper):
-                    return lower
-                return upper
-
-            if method == "Stretch":
-                # 对宽度和高度分别计算最优尺寸
-                new_width = get_optimal_size(width)
-                new_height = get_optimal_size(height)
-            else:
-                # 其他方法保持原来的向上取整逻辑
-                new_width = (width + multiple - 1) // multiple * multiple
-                new_height = (height + multiple - 1) // multiple * multiple
-
-            if method == "Extend":
-                new_img = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
-                new_img.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
-            elif method == "Stretch":
-                new_img = img.resize((new_width, new_height), Image.LANCZOS)
-            elif method == "Crop":
-                left = (width - new_width) // 2
-                top = (height - new_height) // 2
-                right = (width + new_width) // 2
-                bottom = (height + new_height) // 2
-                new_img = img.crop((left, top, right, bottom))
-
-            output_path = os.path.join(output_folder, filename)
-            # 在保存之前根据文件格式进行适当的模式转换
-            if output_path.lower().endswith(('.jpg', '.jpeg')):
-                # JPEG 不支持透明通道，转换回 RGB
-                if new_img.mode == 'RGBA':
-                    # 创建白色背景
-                    background = Image.new('RGB', new_img.size, (255, 255, 255))
-                    # 将 RGBA 图片粘贴到白色背景上
-                    background.paste(new_img, mask=new_img.split()[3])
-                    new_img = background
-            
-            new_img.save(output_path)
-        
-        progress_bar['value'] = i + 1
-        root.update_idletasks()
-
 def select_input_folder():
     folder = filedialog.askdirectory()
     if folder:
@@ -495,12 +393,10 @@ def execute():
     multiple = int(multiple_entry.get())
     method = method_var.get()
     trim_enabled = trim_var.get()
-    adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled)
+    process_subfolders = subfolder_var.get()
     
-    adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled)
-
-
-    # 任务完成后显示 Done!
+    process_folder(input_folder, output_folder, method, multiple, trim_enabled, process_subfolders)
+    
     progress_label.config(text="Done!")
 
 
