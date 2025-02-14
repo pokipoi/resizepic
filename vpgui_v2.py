@@ -43,22 +43,28 @@ def read_config():
     return config['DEFAULT']
 
 def save_config():
-    config = configparser.ConfigParser()
     try:
+        # Save current settings to config
+        config = configparser.ConfigParser()
         config['DEFAULT'] = {
-            'DefaultInFolder': input_folder_entry.get().encode('utf-8').decode('utf-8'),
-            'DefaultOutFolder': output_folder_entry.get().encode('utf-8').decode('utf-8'),
+            'DefaultInFolder': input_folder_entry.get(),
+            'DefaultOutFolder': output_folder_entry.get(),
             'DefaulMultiplied': multiple_entry.get(),
             'DefaulMode': method_var.get(),
             'DefaulPretrimState': '1' if trim_var.get() else '0',
-            'ProcessSubfolders': '1' if subfolder_var.get() else '0'  # 添加新选项
+            'ProcessSubfolders': '1' if subfolder_var.get() else '0'
         }
         
         config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
         with open(config_path, 'w', encoding='utf-8') as f:
             config.write(f)
+            
+        # Destroy the window
+        root.destroy()
     except Exception as e:
-        print(f"Error saving config: {e}")
+        print(f"Error saving config on exit: {e}")
+        root.destroy()
+
 def open_config():
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     try:
@@ -116,8 +122,6 @@ def handle_drop(entry, event):
             entry.update()
             root.update_idletasks()
             
-            # 保存配置
-            save_config()
             print("Configuration saved")
             
         else:
@@ -168,10 +172,10 @@ def quick_process(files):
     try:
         method = method_var.get()
         multiple = int(multiple_entry.get())
-        trim_enabled = trim_var.get()
+        trim_enabled = trim_var.get()   # 获取 trim_enabled 状态
         process_subfolders = subfolder_var.get()
         
-                # 预计算待处理图片总数，用于设置进度条
+        # 预计算待处理图片总数，用于设置进度条
         def count_images(files_list):
             count = 0
             for file_path in files_list:
@@ -184,27 +188,32 @@ def quick_process(files):
                                 count += 1
             return count
         
-        # 重置进度条
-        progress_bar['value'] = 0
-        progress_label.config(text="")  # 清除之前的完成提示
-        root.update_idletasks()
-
         total_files = count_images(files)
         progress_bar.config(maximum=total_files)
         progress_bar['value'] = 0
+        progress_label.config(text="")
+        root.update_idletasks()
+
         current_progress = 0
-        
-        processed_any = False  # 添加标志来追踪是否处理了任何文件
+        processed_any = False
         
         for file_path in files:
-            print(f"Debug: Processing file: {file_path}")  # 打印处理的文件路径
+            print(f"Debug: Processing file: {file_path}")
             
             if os.path.isfile(file_path) and file_path.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
-                print(f"Debug: Valid image file found: {file_path}")  # 打印有效文件
-                
                 processed_any = True
                 with Image.open(file_path) as img:
-                    print(f"Debug: Image size: {img.size}")  # 打印图像大小
+                    # 如果启用 pretrim，则转换为 RGBA 并裁剪透明区域
+                    if trim_enabled:
+                        if img.mode != 'RGBA':
+                            img = img.convert('RGBA')
+                        try:
+                            alpha = img.getchannel('A')
+                            bbox = alpha.getbbox()
+                            if bbox:
+                                img = img.crop(bbox)
+                        except Exception as e:
+                            print(f"Warning: Could not trim image {file_path}: {e}")
                     
                     width, height = img.size
                     new_width = (width + multiple - 1) // multiple * multiple
@@ -221,34 +230,41 @@ def quick_process(files):
                         right = (width + new_width) // 2
                         bottom = (height + new_height) // 2
                         new_img = img.crop((left, top, right, bottom))
-
-                    # 保存前处理格式
+                    
+                    # 保存前处理 JPEG 格式（需转换为 RGB）
                     if file_path.lower().endswith(('.jpg', '.jpeg')):
                         if new_img.mode == 'RGBA':
                             background = Image.new('RGB', new_img.size, (255, 255, 255))
                             background.paste(new_img, mask=new_img.split()[3])
                             new_img = background
                     
-                    print(f"Debug: Saving image: {file_path}")  # 打印保存文件路径
+                    print(f"Debug: Saving image: {file_path}")
                     new_img.save(file_path)
-                
+                    
                 current_progress += 1
                 progress_bar['value'] = current_progress
                 root.update_idletasks()
-
+            
             elif os.path.isdir(file_path):
-                print(f"Debug: Directory found: {file_path}")  # 打印文件夹路径
-                
+                print(f"Debug: Directory found: {file_path}")
                 if process_subfolders:
-                    for root_dir, _, files in os.walk(file_path):
-                        for filename in files:
+                    for root_dir, _, filenames in os.walk(file_path):
+                        for filename in filenames:
                             if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                                 processed_any = True
                                 img_path = os.path.join(root_dir, filename)
-                                print(f"Debug: Processing image in subfolder: {img_path}")
-                                
                                 with Image.open(img_path) as img:
-                                    # 处理图片
+                                    if trim_enabled:
+                                        if img.mode != 'RGBA':
+                                            img = img.convert('RGBA')
+                                        try:
+                                            alpha = img.getchannel('A')
+                                            bbox = alpha.getbbox()
+                                            if bbox:
+                                                img = img.crop(bbox)
+                                        except Exception as e:
+                                            print(f"Warning: Could not trim image {img_path}: {e}")
+                                    
                                     width, height = img.size
                                     new_width = (width + multiple - 1) // multiple * multiple
                                     new_height = (height + multiple - 1) // multiple * multiple
@@ -264,8 +280,7 @@ def quick_process(files):
                                         right = (width + new_width) // 2
                                         bottom = (height + new_height) // 2
                                         new_img = img.crop((left, top, right, bottom))
-
-                                    # 保存前处理格式
+                                    
                                     if img_path.lower().endswith(('.jpg', '.jpeg')):
                                         if new_img.mode == 'RGBA':
                                             background = Image.new('RGB', new_img.size, (255, 255, 255))
@@ -273,19 +288,26 @@ def quick_process(files):
                                             new_img = background
                                     
                                     new_img.save(img_path)
-
                                 current_progress += 1
                                 progress_bar['value'] = current_progress
                                 root.update_idletasks()
                 else:
-                    # 只处理当前文件夹中的图片
                     for filename in os.listdir(file_path):
                         if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                             processed_any = True
                             img_path = os.path.join(file_path, filename)
-                            print(f"Debug: Processing image: {img_path}")  # 打印正在处理的图像路径
                             with Image.open(img_path) as img:
-                                # 处理图片代码与上面相同
+                                if trim_enabled:
+                                    if img.mode != 'RGBA':
+                                        img = img.convert('RGBA')
+                                    try:
+                                        alpha = img.getchannel('A')
+                                        bbox = alpha.getbbox()
+                                        if bbox:
+                                            img = img.crop(bbox)
+                                    except Exception as e:
+                                        print(f"Warning: Could not trim image {img_path}: {e}")
+                                
                                 width, height = img.size
                                 new_width = (width + multiple - 1) // multiple * multiple
                                 new_height = (height + multiple - 1) // multiple * multiple
@@ -301,8 +323,7 @@ def quick_process(files):
                                     right = (width + new_width) // 2
                                     bottom = (height + new_height) // 2
                                     new_img = img.crop((left, top, right, bottom))
-
-                                # 保存前处理格式
+                                
                                 if img_path.lower().endswith(('.jpg', '.jpeg')):
                                     if new_img.mode == 'RGBA':
                                         background = Image.new('RGB', new_img.size, (255, 255, 255))
@@ -312,7 +333,7 @@ def quick_process(files):
                                 new_img.save(img_path)
                             current_progress += 1
                             progress_bar['value'] = current_progress
-                            root.update_idletasks()                           
+                            root.update_idletasks()
         if processed_any:
             progress_label.config(text="Quick process done!")
         else:
@@ -322,10 +343,6 @@ def quick_process(files):
         print(f"Error in quick process: {e}")
         progress_label.config(text="Error!")
 
-
-
-import re
-import os
 
 def handle_quick_drop(event):
     try:
@@ -481,10 +498,11 @@ def execute():
     adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled)
     
     adjust_image_size(input_folder, output_folder, multiple, method, progress_bar, trim_enabled)
-    save_config()  # 保存当前设置到配置文件
+
 
     # 任务完成后显示 Done!
     progress_label.config(text="Done!")
+
 
 # 创建主窗口
 root = TkinterDnD.Tk()
@@ -544,7 +562,7 @@ trim_checkbox = Checkbutton(root, text="Pretrim", variable=trim_var)
 trim_checkbox.grid(row=3, column=2, padx=10, pady=5, sticky='e')
 trim_var.set(config.get('DefaulPretrimState'))
 
-# 在创建trim复选框后添加
+# 添加Process Subfolders 复选框
 subfolder_var = BooleanVar()
 subfolder_checkbox = Checkbutton(root, text="Process Subfolders", variable=subfolder_var)
 subfolder_checkbox.grid(row=2, column=2, padx=10, pady=5, sticky='e')
@@ -563,5 +581,7 @@ quick_drop_frame.dnd_bind('<<Drop>>', handle_quick_drop)
 # 执行按钮
 Button(root, text="run", command=execute, width=35).grid(row=5, column=1, padx=10, pady=5)
 Button(root, text="config", command=open_config, width=8).grid(row=5, column=2, padx=10, pady=5)
+
+root.protocol("WM_DELETE_WINDOW", save_config)
 
 root.mainloop()
