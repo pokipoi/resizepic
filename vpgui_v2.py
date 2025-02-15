@@ -14,7 +14,7 @@ from PIL import Image
 from tkinter import ttk
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-
+task_files = []
 def read_config():
     config = configparser.ConfigParser()
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
@@ -93,43 +93,91 @@ def open_config():
     except Exception as e:
         print(f"Error handling config file: {e}")
 
+def add_tasks_from_path(path):
+    """根据路径返回图片文件列表，按照Process Subfolders复选框过滤"""
+    files = []
+    img_ext = ('png', 'jpg', 'jpeg', 'gif', 'bmp')
+    if os.path.isfile(path) and path.lower().endswith(img_ext):
+        files.append(path)
+    elif os.path.isdir(path):
+        if subfolder_var.get():
+            # 遍历所有子目录
+            for root_dir, _, filenames in os.walk(path):
+                for filename in filenames:
+                    if filename.lower().endswith(img_ext):
+                        files.append(os.path.join(root_dir, filename))
+        else:
+            # 仅收集目录根下的文件
+            for filename in os.listdir(path):
+                if filename.lower().endswith(img_ext):
+                    files.append(os.path.join(path, filename))
+    return files
+
+def add_to_task_list(new_files):
+    """将新文件加入全局待处理任务列表，并更新列表框显示。如果项目已存在且状态为 done，恢复为 pending"""
+    global task_files
+    for f in new_files:
+        indices = [i for i, item in enumerate(task_files) if item[0] == f]
+        if indices:
+            index = indices[0]
+            if task_files[index][1] == "done":
+                # 恢复该任务的 pending 状态
+                task_files[index] = (f, "pending")
+                task_listbox.delete(index)
+                task_listbox.insert(index, f)  # 移除 "done!" 标记
+                task_listbox.itemconfig(index, {'fg': 'black'})
+        else:
+            task_files.append((f, "pending"))
+            task_listbox.insert(tk.END, f)
+            
+def update_task_done(index):
+    """更新列表中指定项为 done!，字体显示绿色"""
+    task_listbox.delete(index)
+    # 运用标签颜色，需要用 Tkinter 的 itemconfig 方法，
+    # 这里简单地在字符串后加上 done! 标记
+    task_listbox.insert(index, f"{task_files[index][0]}  ---  done!")
+    task_listbox.itemconfig(index, {'fg': 'green'})
+    # 同时更新全局列表状态
+    task_files[index] = (task_files[index][0], "done")
+
+#
+# 修改用于 input_folder_entry 拖入的处理函数（也适用于 choose按钮）
 def handle_drop(entry, event):
-    print(f"Handling drop event...")
-    
+    print("Handling drop event...")
     try:
         data = event.data
         if isinstance(data, bytes):
             data = data.decode('utf-8')
-        
-        # 清理路径字符串
-        data = data.strip('{}').strip('"')
-        data = os.path.normpath(data)  # 标准化路径
-        print(f"Processed path: {data}")
-        
-        # 检查并处理路径
-        if os.path.exists(data):
-            if os.path.isdir(data):
-                entry.delete(0, tk.END)
-                entry.insert(0, data)
-                print(f"Updated entry with directory: {data}")
-            elif os.path.isfile(data):
-                folder = os.path.dirname(data)
-                entry.delete(0, tk.END)
-                entry.insert(0, folder)
-                print(f"Updated entry with parent directory: {folder}")
-            
-            # 强制更新Entry和整个窗口
-            entry.update()
-            root.update_idletasks()
-            
-            print("Configuration saved")
-            
-        else:
-            print(f"Invalid path: {data}")
-    
+        # 清理路径字符串，支持多个拖入
+        matches = re.findall(r'{([^}]+)}|(\S+)', data)
+        paths = [grp[0] if grp[0] else grp[1] for grp in matches]
+        paths = [os.path.normpath(p) for p in paths if os.path.exists(p)]
+        if not paths:
+            print("No valid paths found!")
+            return
+        # 更新输入框显示第一个路径
+        entry.delete(0, tk.END)
+        entry.insert(0, paths[0])
+        # 对每个路径，收集图片文件并加入待处理任务列表
+        all_new_files = []
+        for p in paths:
+            all_new_files.extend(add_tasks_from_path(p))
+        if all_new_files:
+            add_to_task_list(all_new_files)
+        root.update_idletasks()
     except Exception as e:
-        print(f"Error in handle_drop: {str(e)}")
+        print(f"Error in handle_drop: {e}")
 
+#
+# 修改选择输入文件夹的函数，也加入任务列表
+def select_input_folder():
+    folder = filedialog.askdirectory()
+    if folder:
+        input_folder_entry.delete(0, 'end')
+        input_folder_entry.insert(0, folder)
+        files = add_tasks_from_path(folder)
+        if files:
+            add_to_task_list(files)
 def process_image(img, multiple, method, trim_enabled):
     """
     对单个 PIL.Image 对象进行处理，返回处理后的图像。
@@ -218,7 +266,8 @@ def process_folder(input_path, output_path, method, multiple, trim_enabled, proc
         elif os.path.isdir(item_path) and process_subfolders:
             new_output_path = os.path.join(output_path, item)
             process_folder(item_path, new_output_path, method, multiple, trim_enabled, process_subfolders)
-# 在 execute() 函数后添加新的快速处理函数
+
+
 def quick_process(files):
     try:
         method = method_var.get()
@@ -320,56 +369,7 @@ def quick_process(files):
     except Exception as e:
         print(f"Error in quick process: {e}")
         progress_label.config(text="Error!")
-
-
-def handle_quick_drop(event):
-    try:
-        data = event.data
-        if isinstance(data, str):
-            # 使用正则表达式匹配用 {} 包裹的路径或不含空格的路径
-            # 模式解释：
-            #   {([^}]+)} 匹配被大括号包裹的部分（捕获括号内的文本）
-            #   | 或
-            #   (\S+) 匹配不包含空格的文本
-            matches = re.findall(r'{([^}]+)}|(\S+)', data)
-            paths = []
-            # 根据匹配结果构造路径列表
-            for grp in matches:
-                if grp[0]:
-                    paths.append(grp[0])
-                else:
-                    paths.append(grp[1])
-            
-            # 标准化路径
-            paths = [os.path.normpath(p) for p in paths]
-            # 获取绝对路径
-            files = [os.path.abspath(p) for p in paths]
-
-
-            # 对每个有效的文件进行处理，处理编码错误问题
-            valid_files = []
-            for f in files:
-                try:
-                    if os.path.exists(f):
-                        valid_files.append(f)
-                except UnicodeEncodeError:
-                    try:
-                        encoded_path = f.encode('utf-8')
-                        decoded_path = encoded_path.decode('utf-8')
-                        if os.path.exists(decoded_path):
-                            valid_files.append(decoded_path)
-                    except Exception as e:
-                        print(f"Error processing file {f}: {e}")
-            
-            if valid_files:
-                quick_process(valid_files)
-            else:
-                progress_label.config(text="No valid files!")
-                
-    except Exception as e:
-        progress_label.config(text=f"Error handling quick drop: {str(e)}")
-        print(f"Error handling quick drop: {str(e)}")
-    
+   
 def select_input_folder():
     folder = filedialog.askdirectory()
     if folder:
@@ -382,23 +382,99 @@ def select_output_folder():
         output_folder_entry.delete(0, 'end')
         output_folder_entry.insert(0, folder)
 
+def remove_selected_task():
+    global task_files
+    # 获取所有选中项的索引（返回元组）
+    selected_indices = task_listbox.curselection()
+    if selected_indices:
+        # 从大到小排序，确保删除时索引正确
+        for index in sorted(selected_indices, reverse=True):
+            task_listbox.delete(index)
+            del task_files[index]
+
+# 添加清空所有任务按钮
+def clear_all_tasks():
+    global task_files
+    task_listbox.delete(0, tk.END)
+    task_files.clear()
 def execute():
-    # 重置进度条
+    global task_files
     progress_bar['value'] = 0
     progress_label.config(text="")  # 清除之前的完成提示
     root.update_idletasks()
     
-    input_folder = input_folder_entry.get()
-    output_folder = output_folder_entry.get()
+    # 获取加工参数
     multiple = int(multiple_entry.get())
     method = method_var.get()
     trim_enabled = trim_var.get()
-    process_subfolders = subfolder_var.get()
     
-    process_folder(input_folder, output_folder, method, multiple, trim_enabled, process_subfolders)
+    total = len(task_files)
+    progress_bar.config(maximum=total)
     
+    for index, (file_path, status) in enumerate(task_files):
+        # 只处理未处理项
+        if status != "done":
+            print(f"Processing: {file_path}")
+            try:
+                with Image.open(file_path) as img:
+                    new_img = process_image(img, multiple, method, trim_enabled)
+                    # 针对 JPEG 格式转换
+                    if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                        background = Image.new('RGB', new_img.size, (255, 255, 255))
+                        background.paste(new_img, mask=new_img.split()[3])
+                        new_img = background
+                    new_img.save(file_path)
+            except Exception as e:
+                print(f"Error processing {file_path}: {e}")
+            # 更新进度与列表显示
+            update_task_done(index)
+            progress_bar['value'] = index + 1
+            root.update_idletasks()
     progress_label.config(text="Done!")
 
+def handle_quick_drop(event):
+    try:
+        data = event.data
+        if isinstance(data, str):
+            matches = re.findall(r'{([^}]+)}|(\S+)', data)
+            paths = [grp[0] if grp[0] else grp[1] for grp in matches]
+            paths = [os.path.normpath(p) for p in paths if os.path.exists(p)]
+            if not paths:
+                progress_label.config(text="No valid files!")
+                return
+            # 对每个路径，收集图片文件
+            quick_files = []
+            for p in paths:
+                quick_files.extend(add_tasks_from_path(p))
+            if quick_files:
+                quick_process(quick_files)
+            else:
+                progress_label.config(text="No images found!")
+    except Exception as e:
+        progress_label.config(text=f"Error handling quick drop: {str(e)}")
+        print(f"Error handling quick drop: {e}")
+
+def handle_task_list_drop(event):
+    try:
+        data = event.data
+        if isinstance(data, bytes):
+            data = data.decode('utf-8')
+        # 清理路径字符串，支持多个拖入
+        matches = re.findall(r'{([^}]+)}|(\S+)', data)
+        paths = [grp[0] if grp[0] else grp[1] for grp in matches]
+        paths = [os.path.normpath(p) for p in paths if os.path.exists(p)]
+        if not paths:
+            print("No valid paths found!")
+            return
+        # 对每个路径，收集图片文件，并加入任务列表
+        all_new_files = []
+        for p in paths:
+            all_new_files.extend(add_tasks_from_path(p))
+        if all_new_files:
+            add_to_task_list(all_new_files)
+        root.update_idletasks()
+    except Exception as e:
+        print(f"Error in handle_task_list_drop: {e}")
 
 # 创建主窗口
 root = TkinterDnD.Tk()
@@ -473,6 +549,17 @@ quick_drop_frame = Label(root, text="直接输出", relief="solid", width=10, he
 quick_drop_frame.grid(row=5, column=0, padx=10, pady=5, sticky='w')
 quick_drop_frame.drop_target_register(DND_FILES)
 quick_drop_frame.dnd_bind('<<Drop>>', handle_quick_drop)
+
+task_listbox = tk.Listbox(root, width=50, height=20, selectmode=tk.EXTENDED)
+task_listbox.grid(row=0, column=3, rowspan=6, padx=10, pady=5)
+task_listbox.drop_target_register(DND_FILES)
+task_listbox.dnd_bind('<<Drop>>', handle_task_list_drop)
+
+# 添加移除选中按钮
+remove_selected_btn = Button(root, text="Remove Selected", command=remove_selected_task)
+remove_selected_btn.grid(row=6, column=3, padx=10, pady=5, sticky='ew')
+clear_all_btn = Button(root, text="Clear All Tasks", command=clear_all_tasks)
+clear_all_btn.grid(row=7, column=3, padx=10, pady=5, sticky='ew')
 
 # 执行按钮
 Button(root, text="run", command=execute, width=35).grid(row=5, column=1, padx=10, pady=5)
