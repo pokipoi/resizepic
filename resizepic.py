@@ -26,8 +26,8 @@ def read_config():
         'DefaultInFolder': os.path.join(get_desktop_path(), "input"),
         'DefaultOutFolder': os.path.join(get_desktop_path(), "output"),
         'DefaulMultiplied': '2',
-        'DefaulMode': 'Crop',
-        'DefaulPretrimState': '1',
+        'DefaulMode': 'Extend',
+        'DefaulPretrimState': '0',
         'ProcessSubfolders': '0' 
     }
     
@@ -371,7 +371,7 @@ def quick_process(files):
                             progress_bar['value'] = current_progress
                             root.update_idletasks()
         if processed_any:
-            progress_label.config(text="Quick process done!")
+            progress_label.config(text="Quick process done!",fg="#9bd300")
         else:
             progress_label.config(text="No images found!")
             
@@ -408,37 +408,87 @@ def clear_all_tasks():
     task_files.clear()
 def execute():
     global task_files
+
+    # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
+    for index, (file_path, status) in enumerate(task_files):
+        if status == "done":
+            task_files[index] = (file_path, "pending")
+    update_task_display()
+
     progress_bar['value'] = 0
     progress_label.config(text="")  # 清除之前的完成提示
     root.update_idletasks()
     
-    # 获取加工参数
     multiple = int(multiple_entry.get())
     method = method_var.get()
     trim_enabled = trim_var.get()
+    process_subfolders = subfolder_var.get()
+    output_folder = output_folder_entry.get()
     
-    total = len(task_files)
+    # 重新计算待处理图片总数，用于设置进度条
+    def count_images(files_list):
+        count = 0
+        for file_path, _ in files_list:
+            if os.path.isfile(file_path) and file_path.lower().endswith(
+                    ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                count += 1
+            elif os.path.isdir(file_path):
+                if process_subfolders:
+                    for root_dir, _, filenames in os.walk(file_path):
+                        for filename in filenames:
+                            if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                                count += 1
+                else:
+                    for filename in os.listdir(file_path):
+                        if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                            count += 1
+        return count
+
+    total = count_images(task_files)
     progress_bar.config(maximum=total)
-    
+    current_progress = 0
+
     for index, (file_path, status) in enumerate(task_files):
         # 只处理未处理项
         if status != "done":
             print(f"Processing: {file_path}")
             try:
-                with Image.open(file_path) as img:
-                    new_img = process_image(img, multiple, method, trim_enabled)
-                    # 针对 JPEG 格式转换
-                    if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
-                        background = Image.new('RGB', new_img.size, (255, 255, 255))
-                        background.paste(new_img, mask=new_img.split()[3])
-                        new_img = background
-                    new_img.save(file_path)
+                if os.path.isfile(file_path) and file_path.lower().endswith(
+                        ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                    # 如果文件在输入文件夹内，则保留相对路径，否则仅取文件名
+                    input_folder = input_folder_entry.get()
+                    abs_file = os.path.abspath(file_path)
+                    abs_input = os.path.abspath(input_folder)
+                    if abs_file.startswith(abs_input):
+                        relative = os.path.relpath(file_path, input_folder)
+                    else:
+                        relative = os.path.basename(file_path)
+                    out_file = os.path.join(output_folder, relative)
+                    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+                    
+                    with Image.open(file_path) as img:
+                        new_img = process_image(img, multiple, method, trim_enabled)
+                        # 针对 JPEG 格式转换（JPEG 不支持透明通道）
+                        if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                            background = Image.new('RGB', new_img.size, (255, 255, 255))
+                            background.paste(new_img, mask=new_img.split()[3])
+                            new_img = background
+                        print(f"Saving processed image to: {out_file}")
+                        new_img.save(out_file)
+                    current_progress += 1
+                    progress_bar['value'] = current_progress
+                    root.update_idletasks()
+                    
+                elif os.path.isdir(file_path):
+                    # 对文件夹调用 process_folder 函数，并将输出目录设为 output_folder
+                    print(f"Processing directory: {file_path}")
+                    process_folder(file_path, output_folder, method, multiple, trim_enabled, process_subfolders)
+                    # 此处对于文件夹内的进度更新较难精确计数，可按实际情况调节
             except Exception as e:
                 print(f"Error processing {file_path}: {e}")
-            # 更新进度与列表显示
-            update_task_done(index)
-            progress_bar['value'] = index + 1
-            root.update_idletasks()
+            # 标记当前任务已完成
+            task_files[index] = (file_path, "done")
+            update_task_display()
     progress_label.config(text="Done!")
 
 def handle_quick_drop(event):
@@ -624,7 +674,10 @@ method_combo.grid(row=3, column=1, padx=10, pady=5)
 
 # 进度条
 Label(root, text="Progress:").grid(row=4, column=0, padx=10, pady=5, sticky='w')
-progress_bar = ttk.Progressbar(root, orient='horizontal', length=250, mode='determinate')
+style = ttk.Style(root)
+style.theme_use('default')
+style.configure("green.Horizontal.TProgressbar", troughcolor='#eff2c7', background='#9bd300')
+progress_bar = ttk.Progressbar(root, orient='horizontal', length=250, mode='determinate', style="green.Horizontal.TProgressbar")
 progress_bar.grid(row=4, column=1, padx=10, pady=5)
 
 # 在处理方式选择框之后添加 trim 复选框
@@ -641,11 +694,14 @@ subfolder_var.set(config.get('ProcessSubfolders') == '1')
 
 # 在文件开头的界面元素定义部分（在创建进度条之后）添加：
 progress_label = Label(root, text="")
-progress_label.grid(row=4, column=2, padx=10, pady=5, sticky='e')
+progress_label.grid(row=21, column=1, padx=10, pady=5, sticky='wes')
 
 # 在创建run按钮之前添加快速处理区域
-quick_drop_frame = Label(root, text="直接输出", relief="solid", width=10, height=2)
-quick_drop_frame.grid(row=5, column=0, padx=10, pady=5, sticky='w')
+border_frame = tk.Frame(root, bg="#9bd300", padx=2, pady=2)
+border_frame.grid(row=5, column=0, padx=10, pady=5, sticky='w')
+
+quick_drop_frame = Label(border_frame, text="Quick Drop", relief="solid", width=10, height=2, bd=0)
+quick_drop_frame.pack()
 quick_drop_frame.drop_target_register(DND_FILES)
 quick_drop_frame.dnd_bind('<<Drop>>', handle_quick_drop)
 
@@ -688,5 +744,13 @@ Button(root, text="run", command=execute, width=35).grid(row=5, column=1, padx=1
 Button(root, text="config", command=open_config, width=8).grid(row=5, column=2, padx=10, pady=5,sticky='e')
 
 root.protocol("WM_DELETE_WINDOW", save_config)
+
+default_input_folder = input_folder_entry.get()
+if os.path.exists(default_input_folder):
+    new_files = add_tasks_from_path(default_input_folder)
+    if new_files:
+        add_to_task_list(new_files)
+else:
+    print(f"Input folder not found: {default_input_folder}")
 
 root.mainloop()
