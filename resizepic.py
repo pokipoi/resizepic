@@ -17,9 +17,19 @@ if getattr(sys.stdout, 'buffer', None):
 
 task_files = []
 thumbnail_images = {}
+
+def resource_path(relative_path):
+    """
+    获取资源文件的绝对路径，打包后返回 exe 所在的目录（而非临时解压目录）
+    """
+    if getattr(sys, 'frozen', False):  # 如果是打包后运行
+        base_path = os.path.dirname(sys.executable)
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 def read_config():
     config = configparser.ConfigParser()
-    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    config_path = resource_path('config.ini') 
     
     # 设置默认值
     default_config = {
@@ -57,7 +67,7 @@ def save_config():
             'ProcessSubfolders': '1' if subfolder_var.get() else '0'
         }
         
-        config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+        config_path = resource_path('config.ini') 
         with open(config_path, 'w', encoding='utf-8') as f:
             config.write(f)
             
@@ -66,6 +76,7 @@ def save_config():
     except Exception as e:
         print(f"Error saving config on exit: {e}")
         root.destroy()
+
 
 def open_config():
     config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
