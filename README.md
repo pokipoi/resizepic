@@ -1,4 +1,5 @@
-![image](https://github.com/user-attachments/assets/909e1ec4-18d7-4f8e-82d7-4f0f74bb956a)
+![image](https://github.com/user-attachments/assets/adb02d6a-3fc5-471e-a9be-0fee70b94f3e)
+
 
 # 下一步计划
 ~~添加网络路径支持，保存网络位置配置会乱码~~已修复
