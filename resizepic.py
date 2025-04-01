@@ -12,6 +12,7 @@ from tkinter import Tk, Label, Entry, Button, filedialog, StringVar, OptionMenu,
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image, ImageTk
 from tkinter import ttk
+from gpu_processor_opencl import process_image_opencl 
 if getattr(sys.stdout, 'buffer', None):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -198,11 +199,11 @@ def select_input_folder():
         files = add_tasks_from_path(folder)
         if files:
             add_to_task_list(files)
-def process_image(img, multiple, method, trim_enabled):
+
+def _process_image_cpu(img, multiple, method, trim_enabled):
     """
-    对单个 PIL.Image 对象进行处理，返回处理后的图像。
+    原始 CPU 处理图像的函数
     """
-    # 如果启用 pretrim，则转换为 RGBA 并裁剪透明区域
     if trim_enabled:
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
@@ -216,7 +217,6 @@ def process_image(img, multiple, method, trim_enabled):
     
     width, height = img.size
     if method == "Stretch":
-        # 支持宽高分别调整到最优尺寸（或简单调用 resize）
         def get_optimal_size(dimension):
             lower = (dimension // multiple) * multiple
             upper = lower + multiple
@@ -233,16 +233,28 @@ def process_image(img, multiple, method, trim_enabled):
     elif method == "Stretch":
         new_img = img.resize((new_width, new_height), Image.LANCZOS)
     elif method == "Crop":
-        # Crop: 裁剪中心区域
         left = (width - new_width) // 2
         top = (height - new_height) // 2
         right = (width + new_width) // 2
         bottom = (height + new_height) // 2
         new_img = img.crop((left, top, right, bottom))
-    
-    # 如果输出 JPEG，而图像是RGBA，则转换为RGB（可在保存时再转换）
     return new_img
 
+def process_image(img, multiple, method, trim_enabled):
+    """
+    根据 GPU 处理开关（gpu_var）决定是否调用 GPU 算法。
+    如果 gpu_var 为 True，则调用 gpu_processor.process_image_gpu，否则调用 CPU 算法。
+    调用其他地方使用 process_image 的代码无需修改。
+    """
+    try:
+        use_gpu = gpu_var.get()
+    except Exception as e:
+        use_gpu = False
+    if use_gpu:
+        return process_image_opencl(img, multiple, method, trim_enabled)
+    else:
+        return _process_image_cpu(img, multiple, method, trim_enabled)
+    
 def get_desktop_path():
     try:
         # 打开注册表键
@@ -393,8 +405,13 @@ def quick_process(files):
 def select_input_folder():
     folder = filedialog.askdirectory()
     if folder:
+        clear_all_tasks()  
         input_folder_entry.delete(0, 'end')
         input_folder_entry.insert(0, folder)
+        # 刷新待处理任务列表
+        files = add_tasks_from_path(folder)
+        if files:
+            add_to_task_list(files)
 
 def select_output_folder():
     folder = filedialog.askdirectory()
@@ -565,12 +582,14 @@ def update_task_display():
         thumbnail_frame.grid_remove()
         task_listbox.delete(0, tk.END)
         for f, status in task_files:
-            display_text = f if status == "pending" else f"{f}  ---  done!"
+            orig_dims, new_dims = calculate_new_dimensions(f, int(multiple_entry.get()), method_var.get(), trim_var.get())
+            size_info = f" [{orig_dims[0]}x{orig_dims[1]} → {new_dims[0]}x{new_dims[1]}]"
+            display_text = f"{f}{size_info}" if status == "pending" else f"{f}{size_info}  ---  done!"
             task_listbox.insert(tk.END, display_text)
             if status == "done":
                 task_listbox.itemconfig(tk.END, {'fg': 'green'})
     else:
-        # 显示缩略图：隐藏 Listbox，重建 thumbnail_frame 内容
+        # 缩略图视图代码
         task_listbox.grid_remove()
         thumbnail_frame.grid()
         for widget in thumbnail_frame.winfo_children():
@@ -587,7 +606,11 @@ def update_task_display():
                     draw.rectangle((0, 0, img.width - 1, img.height - 1), outline="#9dd500")
                 photo = ImageTk.PhotoImage(img)
                 thumbnail_images[idx] = photo  # 保存引用
-                text = os.path.basename(f)
+                
+                # 添加尺寸信息
+                orig_dims, new_dims = calculate_new_dimensions(f, int(multiple_entry.get()), method_var.get(), trim_var.get())
+                text = f"{os.path.basename(f)}\n{orig_dims[0]}x{orig_dims[1]} → {new_dims[0]}x{new_dims[1]}"
+                
                 fg_color = "black"
                 if status == "done":
                     text += "\n--- done!"
@@ -631,10 +654,94 @@ def switch_view_mode():
         view_mode.set("list")
     update_task_display()
 
+def calculate_new_dimensions(img_path, multiple, method, trim_enabled):
+    """根据用户设置计算图片处理后的预期尺寸"""
+    try:
+        with Image.open(img_path) as img:
+            width, height = img.size
+            
+            # 如果启用了裁剪，先计算裁剪后的尺寸
+            if trim_enabled and 'A' in img.getbands():
+                try:
+                    alpha = img.getchannel('A')
+                    bbox = alpha.getbbox()
+                    if bbox:
+                        width = bbox[2] - bbox[0]
+                        height = bbox[3] - bbox[1]
+                except Exception:
+                    pass
+            
+            # 根据不同方法计算新尺寸
+            if method == "Stretch":
+                def get_optimal_size(dimension):
+                    lower = (dimension // multiple) * multiple
+                    upper = lower + multiple
+                    return lower if abs(dimension - lower) <= abs(dimension - upper) else upper
+                new_width = get_optimal_size(width)
+                new_height = get_optimal_size(height)
+            else:  # Extend 或 Crop 方法
+                new_width = (width + multiple - 1) // multiple * multiple
+                new_height = (height + multiple - 1) // multiple * multiple
+                
+            return (width, height), (new_width, new_height)
+    except Exception as e:
+        print(f"Error calculating dimensions: {e}")
+        return (0, 0), (0, 0)
+
+# 2. 添加窗口置顶功能 (在主窗口创建后添加)
+def toggle_always_on_top():
+    global always_on_top, pin_button
+    always_on_top = not always_on_top
+    root.attributes("-topmost", always_on_top)
+    
+    # 更新按钮图标
+    if always_on_top:
+        pin_button.config(image=pin_on_icon)
+        pin_button.config(background="#9bd300")  # 置顶时按钮背景变色
+    else:
+        pin_button.config(image=pin_off_icon)
+        pin_button.config(background=root.cget('bg'))  # 恢复默认背景色
 
 
 # 创建主窗口
 root = TkinterDnD.Tk()
+# 添加在 root 创建后，设置窗口属性之前
+
+# 添加置顶功能和图标
+always_on_top = False
+
+# 加载 SVG 图标 (需要先在同目录下准备这两个 SVG 文件)
+try:
+    from PIL import Image, ImageTk
+    # 尝试加载 SVG 图标，如果没有或出错则使用文字按钮
+    pin_on_path = resource_path('ic_fluent_pin_48_regular.svg')
+    pin_off_path = resource_path('ic_fluent_pin_off_48_regular.svg')
+    
+    # 如果是 SVG，需要先转换为 PNG
+    import cairosvg  # 你可能需要安装这个库: pip install cairosvg
+    
+    if os.path.exists(pin_on_path) and os.path.exists(pin_off_path):
+        # 转换 SVG 到 PNG，然后加载
+        temp_on = os.path.join(os.path.dirname(pin_on_path), 'temp_pin_on.png')
+        temp_off = os.path.join(os.path.dirname(pin_off_path), 'temp_pin_off.png')
+        
+        cairosvg.svg2png(url=pin_on_path, write_to=temp_on, output_width=24, output_height=24)
+        cairosvg.svg2png(url=pin_off_path, write_to=temp_off, output_width=24, output_height=24)
+        
+        pin_on_icon = ImageTk.PhotoImage(Image.open(temp_on))
+        pin_off_icon = ImageTk.PhotoImage(Image.open(temp_off))
+        
+        # 删除临时文件
+        os.remove(temp_on)
+        os.remove(temp_off)
+    else:
+        # 如果找不到图标文件，使用简单文本按钮
+        raise FileNotFoundError("Icon files not found")
+except Exception as e:
+    print(f"Error loading pin icons: {e}")
+    # 使用 Unicode 字符作为备用图标
+    pin_on_icon = None
+    pin_off_icon = None
 root.title("Pixel magnification adjustment")
 try:
     icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
@@ -642,6 +749,20 @@ try:
         root.iconbitmap(icon_path)
 except Exception as e:
     print(f"Error loading icon: {e}")
+
+# 添加在标题栏设置后，其他窗口元素之前
+
+# 添加置顶按钮
+if pin_on_icon and pin_off_icon:
+    pin_button = tk.Button(root, image=pin_off_icon, command=toggle_always_on_top, 
+                          bd=0, highlightthickness=0, relief="flat")
+else:
+    # 如果图标加载失败，使用文字按钮
+    pin_button = tk.Button(root, text="📌", command=toggle_always_on_top,
+                          bd=0, highlightthickness=0, relief="flat")
+
+pin_button.grid(row=0, column=6, padx=0, pady=0, sticky='ne')
+
 root.grid_columnconfigure(0, weight=1)
 root.grid_columnconfigure(1, weight=1)
 root.grid_columnconfigure(2, weight=1)
@@ -696,6 +817,12 @@ trim_var = BooleanVar()
 trim_checkbox = Checkbutton(root, text="Pretrim", variable=trim_var)
 trim_checkbox.grid(row=3, column=2, padx=10, pady=5, sticky='e')
 trim_var.set(config.get('DefaulPretrimState'))
+
+# 在界面控件部分，添加 GPU 处理开关
+gpu_var = BooleanVar()
+gpu_checkbox = Checkbutton(root, text="GPU Processing", variable=gpu_var)
+gpu_checkbox.grid(row=3, column=3, padx=10, pady=5, sticky='w')
+gpu_var.set(False)
 
 # 添加Process Subfolders 复选框
 subfolder_var = BooleanVar()
