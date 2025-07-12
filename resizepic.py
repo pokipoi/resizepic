@@ -77,6 +77,7 @@ import os.path
 import winreg
 import configparser
 import tkinter as tk
+import tkinter.font as tkfont
 import threading
 import queue
 from PIL import Image, ImageTk
@@ -135,7 +136,7 @@ def read_config():
         'DefaulPretrimState': '0',
         'ProcessSubfolders': '0',
         'AutoloadDefaultFolder': '1',
-        'ColumnWidths': '200,100,100,80',
+        'ColumnWidths': '129,116,123,75',
         'Language': 'en',
     }
     if not os.path.exists(config_path):
@@ -966,7 +967,21 @@ def update_target_sizes(*args):
 
 
 # 创建主窗口
+# 读取配置
+config = read_config()
+lang_code = config.get('Language', 'zh')
+LANG = LANGUAGES.get(lang_code, LANGUAGES['zh'])
 root = TkinterDnD.Tk()
+if lang_code == 'zh':
+    default_font = tkfont.nametofont("TkDefaultFont")
+    default_font.config(family="Microsoft YaHei", size=10)
+    root.option_add("*Font", "{Microsoft YaHei} 10")
+else:
+    default_font = tkfont.nametofont("TkDefaultFont")
+    default_font.config(family="Segoe UI", size=10)
+    root.option_add("*Font", "{Segoe UI} 10")
+
+
 # 添加在 root 创建后，设置窗口属性之前
 root.geometry("480x520")
 
