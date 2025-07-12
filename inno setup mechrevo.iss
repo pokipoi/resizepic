@@ -3,7 +3,7 @@
 ; winget install --id=JRSoftware.InnoSetup -e
 
 #define MyAppName "resizepic"
-#define MyAppVersion "1.2"
+#define MyAppVersion "1.3"
 #define MyAppPublisher "pokipoi"
 #define MyAppURL "https://github.com/pokipoi/resizepic"
 #define MyAppExeName "resizepic.exe"

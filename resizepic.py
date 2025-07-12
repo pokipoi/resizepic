@@ -1,3 +1,73 @@
+LANGUAGES = {
+    'en': {
+        'input': 'input:',
+        'output': 'output:',
+        'multiplier': 'multiplier:',
+        'method': 'method:',
+        'pretrim': 'Pretrim',
+        'gpu_processing': 'GPU Processing',
+        'process_subfolders': 'Process Subfolders',
+        'progress': 'Progress:',
+        'quick_drop': 'Quick Drop',
+        'remove_selected': 'Remove Selected',
+        'clear_all': 'Clear All Tasks',
+        'run': 'Run',
+        'config': 'config',
+        'file_name': 'File Name',
+        'original_size': 'Original Size',
+        'target_size': 'Target Size',
+        'status': 'Status',
+        'done': 'Done',
+        'pending': 'Pending',
+        'error': 'Error',
+        'paused': 'Paused',
+        'resuming': 'Resuming...',
+        'processing': 'Processing...',
+        'processing_done': 'Done!',
+        'task_already_running': 'Task already running!',
+        'no_valid_files': 'No valid files!',
+        'no_images_found': 'No images found!',
+        'quickdrop_already_running': 'QuickDrop already running!',
+        'quickdrop_processing': 'QuickDrop processing...',
+        'quickdrop_done': 'Quick process done!',
+    },
+    'zh': {
+        'input': '输入文件夹:',
+        'output': '输出文件夹:',
+        'multiplier': '倍数:',
+        'method': '处理方式:',
+        'pretrim': '预裁剪',
+        'gpu_processing': 'GPU加速',
+        'process_subfolders': '处理子文件夹',
+        'progress': '进度:',
+        'quick_drop': '快速拖放',
+        'remove_selected': '移除选中',
+        'clear_all': '清空任务',
+        'run': '开始',
+        'config': '配置',
+        'file_name': '文件名',
+        'original_size': '原始尺寸',
+        'target_size': '目标尺寸',
+        'status': '状态',
+        'done': '完成',
+        'pending': '待处理',
+        'error': '错误',
+        'paused': '已暂停',
+        'resuming': '继续中...',
+        'processing': '处理中...',
+        'processing_done': '处理完成!',
+        'task_already_running': '任务正在运行!',
+        'no_valid_files': '无有效文件!',
+        'no_images_found': '未找到图片!',
+        'quickdrop_already_running': '快速处理正在运行!',
+        'quickdrop_processing': '快速处理...',
+        'quickdrop_done': '快速处理完成!',
+    }
+}
+
+
+
+
 import sys
 import io
 import os
@@ -56,7 +126,6 @@ task_files = []
 def read_config():
     config = configparser.ConfigParser()
     config_path = resource_path('config.ini') 
-    
     # 设置默认值
     default_config = {
         'DefaultInFolder': os.path.join(get_desktop_path(), "input"),
@@ -66,9 +135,9 @@ def read_config():
         'DefaulPretrimState': '0',
         'ProcessSubfolders': '0',
         'AutoloadDefaultFolder': '1',
-        'ColumnWidths': '200,100,100,80'
+        'ColumnWidths': '200,100,100,80',
+        'Language': 'en',
     }
-    
     if not os.path.exists(config_path):
         config['DEFAULT'] = default_config
         with open(config_path, 'w', encoding='utf-8') as f:
@@ -79,11 +148,18 @@ def read_config():
         for key, value in default_config.items():
             if key not in config['DEFAULT']:
                 config['DEFAULT'][key] = value
-    
     return config['DEFAULT']
 
 def save_config():
     try:
+        global lang_code 
+        
+        # 重新读取 config.ini，获取用户可能手动更改的 Language
+        config_path = resource_path('config.ini')
+        if os.path.exists(config_path):
+            tmp_config = configparser.ConfigParser()
+            tmp_config.read(config_path, encoding='utf-8')
+            lang_code = tmp_config['DEFAULT'].get('Language', lang_code)
         # 获取当前列宽
         current_column_widths = []
         try:
@@ -113,7 +189,8 @@ def save_config():
                     'DefaulPretrimState': '1' if trim_var.get() else '0',
                     'ProcessSubfolders': '1' if subfolder_var.get() else '0',
                     'AutoLoadDefaultFolder': old_autoload,
-                    'ColumnWidths': ','.join(current_column_widths)
+                    'ColumnWidths': ','.join(current_column_widths),
+                    'Language': lang_code,  # 使用当前语言设置
                 }
         
         config_path = resource_path('config.ini') 
@@ -940,35 +1017,35 @@ root.grid_columnconfigure(2, weight=1)
 
 # 读取配置
 config = read_config()
-
-
+lang_code = config.get('Language', 'zh')
+LANG = LANGUAGES.get(lang_code, LANGUAGES['zh'])
 
 # 输入文件夹
-Label(root, text="input:").grid(row=0, column=0, padx=10, pady=5, sticky='w')
+Label(root, text=LANG['input']).grid(row=0, column=0, padx=10, pady=5, sticky='w')
 input_folder_entry = Entry(root, width=40)
 input_folder_entry.grid(row=0, column=1, padx=10, pady=5)
 input_folder_entry.insert(0, config.get('DefaultInFolder', os.path.join(get_desktop_path(), "input")))
 input_folder_entry.drop_target_register(DND_FILES)
 input_folder_entry.dnd_bind('<<Drop>>', lambda e: (handle_drop(input_folder_entry, e), root.update()))
-Button(root, text="choose", command=select_input_folder).grid(row=0, column=2, padx=10, pady=5, sticky='e')
+Button(root, text=LANG['run'], command=select_input_folder).grid(row=0, column=2, padx=10, pady=5, sticky='e')
 
 # 输出文件夹
-Label(root, text="output:").grid(row=1, column=0, padx=10, pady=5, sticky='w')
+Label(root, text=LANG['output']).grid(row=1, column=0, padx=10, pady=5, sticky='w')
 output_folder_entry = Entry(root, width=40)
 output_folder_entry.grid(row=1, column=1, padx=10, pady=5)
 output_folder_entry.insert(0, config.get('DefaultOutFolder', os.path.join(get_desktop_path(), "output")))
 output_folder_entry.drop_target_register(DND_FILES)
 output_folder_entry.dnd_bind('<<Drop>>', lambda e: (handle_output_drop(output_folder_entry, e), root.update()))
-Button(root, text="choose", command=select_output_folder).grid(row=1, column=2, padx=10, pady=5, sticky='e')
+Button(root, text=LANG['run'], command=select_output_folder).grid(row=1, column=2, padx=10, pady=5, sticky='e')
 
 # 倍率
-Label(root, text="multiplier:").grid(row=2, column=0, padx=10, pady=5, sticky='w')
+Label(root, text=LANG['multiplier']).grid(row=2, column=0, padx=10, pady=5, sticky='w')
 multiple_entry = Entry(root, width=40)
 multiple_entry.insert(0, config.get('DefaulMultiplied', "4"))
 multiple_entry.grid(row=2, column=1, padx=10, pady=5)
 
 # 处理方式
-Label(root, text="method:").grid(row=3, column=0, padx=10, pady=5, sticky='w')
+Label(root, text=LANG['method']).grid(row=3, column=0, padx=10, pady=5, sticky='w')
 method_var = StringVar(root)
 method_combo = ttk.Combobox(root, textvariable=method_var, width=37, state="readonly")
 method_combo['values'] = ("Extend", "Stretch", "Crop")
@@ -976,7 +1053,7 @@ method_combo.set(config.get('DefaulMode', "Extend")) # 设置默认值
 method_combo.grid(row=3, column=1, padx=10, pady=5)
 
 # 进度条
-Label(root, text="Progress:").grid(row=4, column=0, padx=10, pady=5, sticky='w')
+Label(root, text=LANG['progress']).grid(row=4, column=0, padx=10, pady=5, sticky='w')
 style = ttk.Style(root)
 style.theme_use('default')
 style.configure("green.Horizontal.TProgressbar", troughcolor='#eff2c7', background='#9bd300')
@@ -985,19 +1062,19 @@ progress_bar.grid(row=4, column=1, padx=10, pady=5)
 
 # 在处理方式选择框之后添加 trim 复选框
 trim_var = BooleanVar()
-trim_checkbox = Checkbutton(root, text="Pretrim", variable=trim_var)
+trim_checkbox = Checkbutton(root, text=LANG['pretrim'], variable=trim_var)
 trim_checkbox.grid(row=3, column=2, padx=10, pady=5, sticky='e')
 trim_var.set(config.get('DefaulPretrimState'))
 
 # 在界面控件部分，添加 GPU 处理开关
 gpu_var = BooleanVar()
-gpu_checkbox = Checkbutton(root, text="GPU Processing", variable=gpu_var)
+gpu_checkbox = Checkbutton(root, text=LANG['gpu_processing'], variable=gpu_var)
 gpu_checkbox.grid(row=4, column=2, padx=10, pady=5, sticky='e')
 gpu_var.set(False)
 
 # 添加Process Subfolders 复选框
 subfolder_var = BooleanVar()
-subfolder_checkbox = Checkbutton(root, text="Process Subfolders", variable=subfolder_var)
+subfolder_checkbox = Checkbutton(root, text=LANG['process_subfolders'], variable=subfolder_var)
 subfolder_checkbox.grid(row=2, column=2, padx=10, pady=5, sticky='e')
 subfolder_var.set(config.get('ProcessSubfolders') == '1')
 
@@ -1009,7 +1086,7 @@ progress_label.grid(row=21, column=1, padx=10, pady=5, sticky='wes')
 border_frame = tk.Frame(root, bg="#9bd300", padx=2, pady=2)
 border_frame.grid(row=5, column=0, padx=10, pady=5, sticky='w')
 
-quick_drop_frame = Label(border_frame, text="Quick Drop", relief="solid", width=10, height=2, bd=0)
+quick_drop_frame = Label(border_frame, text=LANG['quick_drop'], relief="solid", width=10, height=2, bd=0)
 quick_drop_frame.pack()
 quick_drop_frame.drop_target_register(DND_FILES)
 quick_drop_frame.dnd_bind('<<Drop>>', handle_quick_drop)
@@ -1033,10 +1110,10 @@ task_listbox = ttk.Treeview(list_frame, columns=("name", "orig_size", "new_size"
                            selectmode="extended", show="headings", height=10)
 
 # 设置列标题
-task_listbox.heading("name", text="File Name")
-task_listbox.heading("orig_size", text="Original Size")
-task_listbox.heading("new_size", text="Target Size")
-task_listbox.heading("status", text="Status")
+task_listbox.heading("name", text=LANG['file_name'])
+task_listbox.heading("orig_size", text=LANG['original_size'])
+task_listbox.heading("new_size", text=LANG['target_size'])
+task_listbox.heading("status", text=LANG['status'])
 
 # 恢复保存的列宽设置
 try:
@@ -1068,15 +1145,15 @@ task_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
 
 # 添加移除选中按钮
-remove_selected_btn = Button(root, text="Remove Selected", command=remove_selected_task)
+remove_selected_btn = Button(root, text=LANG['remove_selected'], command=remove_selected_task)
 remove_selected_btn.grid(row=7, column=0, padx=1, pady=1, sticky='ew')
-clear_all_btn = Button(root, text="Clear All Tasks", command=clear_all_tasks)
+clear_all_btn = Button(root, text=LANG['clear_all'], command=clear_all_tasks)
 clear_all_btn.grid(row=7, column=1, padx=1, pady=1, sticky='ew')
 
 # 替换原有 run 按钮为合并按钮
-run_pause_btn = Button(root, text="Run", command=toggle_run_pause, width=35)
+run_pause_btn = Button(root, text=LANG['run'], command=toggle_run_pause, width=35)
 run_pause_btn.grid(row=5, column=1, padx=10, pady=5)
-Button(root, text="config", command=open_config, width=8).grid(row=5, column=2, padx=10, pady=5,sticky='e')
+Button(root, text=LANG['config'], command=open_config, width=8).grid(row=5, column=2, padx=10, pady=5,sticky='e')
 
 root.protocol("WM_DELETE_WINDOW", save_config)
 
