@@ -18,6 +18,17 @@ from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image, ImageTk
 Image.MAX_IMAGE_PIXELS = None  # 禁用解压炸弹警告
 
+# 先定义resource_path函数
+def resource_path(relative_path):
+    """
+    获取资源文件的绝对路径，打包后返回 exe 所在的目录（而非临时解压目录）
+    """
+    if getattr(sys, 'frozen', False):  # 如果是打包后运行
+        base_path = os.path.dirname(sys.executable)
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 # Cairo错误处理 - 简化图标加载逻辑
 try:
     # 尝试直接加载PNG/ICO图标，不使用SVG转换
@@ -42,20 +53,6 @@ if getattr(sys.stdout, 'buffer', None):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 task_files = []
-thumbnail_images = {}
-# 全局队列用于在线程间传递数据
-thumbnail_queue = queue.Queue()
-thumbnail_loading = False  # 标记是否正在加载缩略图
-thumbnail_status_label = None
-def resource_path(relative_path):
-    """
-    获取资源文件的绝对路径，打包后返回 exe 所在的目录（而非临时解压目录）
-    """
-    if getattr(sys, 'frozen', False):  # 如果是打包后运行
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
 def read_config():
     config = configparser.ConfigParser()
     config_path = resource_path('config.ini') 
@@ -447,39 +444,6 @@ def select_output_folder():
         output_folder_entry.delete(0, 'end')
         output_folder_entry.insert(0, folder)
 
-def remove_selected_task():
-    global task_files
-    if view_mode.get() == "list":
-        # 列表视图模式 (Treeview)
-        selected_items = task_listbox.selection()
-        if selected_items:
-            # 获取每个项目对应的索引
-            selected_indices = []
-            for item in selected_items:
-                # 找出该项在原始任务列表中的位置
-                item_idx = task_listbox.index(item)
-                selected_indices.append(item_idx)
-                
-            # 从大到小排序，确保删除时索引正确
-            for index in sorted(selected_indices, reverse=True):
-                del task_files[index]
-            
-            # 更新显示
-            update_task_display()
-    else:
-        # 缩略图模式
-        selected_indices = []
-        for widget in thumbnail_frame.winfo_children():
-            if hasattr(widget, "selected") and widget.selected:
-                selected_indices.append(widget.thumb_index)
-        
-        # 去除重复，倒序删除确保索引正确
-        for index in sorted(set(selected_indices), reverse=True):
-            del task_files[index]
-        
-        # 更新显示
-        update_task_display()
-
 # 添加清空所有任务按钮
 def clear_all_tasks():
     global task_files
@@ -619,138 +583,14 @@ def handle_task_list_drop(event):
     except Exception as e:
         print(f"Error in handle_task_list_drop: {e}")
 
-def toggle_thumbnail_select(event):
-    """切换缩略图标签的选中状态，选中时改变背景色"""
-    label = event.widget
-    if not hasattr(label, "selected") or not label.selected:
-        label.selected = True
-        # 改变背景以表示选中，颜色可根据需要调整
-        label.config(bg="lightblue")
-    else:
-        label.selected = False
-        # 恢复为容器背景色
-        label.config(bg=thumbnail_frame.cget("bg"))
-
-
-def load_thumbnails_thread(files, multiple, method, trim_enabled, items_per_row):
-    """在后台线程中加载缩略图"""
-    global thumbnail_loading
-    thumbnail_loading = True
-    
-    # 限制显示数量
-    MAX_THUMBNAILS = 50
-    display_count = min(len(files), MAX_THUMBNAILS)
-    
-    for idx in range(display_count):
-        if idx >= len(files):
-            break
-            
-        f, status = files[idx]
-        try:
-            img = Image.open(f)
-            img.thumbnail((64, 64))
-
-            # 如果图像有透明通道，则绘制描边
-            if 'A' in img.getbands():
-                from PIL import ImageDraw
-                draw = ImageDraw.Draw(img)
-                draw.rectangle((0, 0, img.width - 1, img.height - 1), outline="#9dd500")
-            
-            # 计算行列位置
-            row = idx // items_per_row
-            col = idx % items_per_row
-            
-            # 添加尺寸信息
-            orig_dims, new_dims = calculate_new_dimensions(f, multiple, method, trim_enabled)
-            text = f"{os.path.basename(f)}\n{orig_dims[0]}x{orig_dims[1]} → {new_dims[0]}x{new_dims[1]}"
-            
-            fg_color = "black"
-            if status == "done":
-                text += "\n--- done!"
-                fg_color = "green"
-                
-            # 将加载的原始PIL图像和相关信息放入队列
-            # 注意：不在线程中创建 ImageTk 对象
-            thumbnail_queue.put((idx, img, text, status, fg_color, row, col))
-        except Exception as e:
-            print(f"Error loading thumbnail for {f}: {e}")
-    
-    # 所有图片处理完毕
-    thumbnail_loading = False
-    
-    # 如果有更多图片，发送一个特殊信号以显示提示信息
-    if len(files) > MAX_THUMBNAILS:
-        thumbnail_queue.put(('more_info', len(files) - MAX_THUMBNAILS, 
-                           display_count // items_per_row + 1, items_per_row))
-
-def update_thumbnail_display():
-    """定期检查队列并更新UI的函数"""
-    global thumbnail_images
-    
-    try:
-        # 处理队列中的项目，每次最多处理5个以保持UI响应
-        processed = 0
-        while not thumbnail_queue.empty() and processed < 5:
-            item = thumbnail_queue.get_nowait()
-            processed += 1
-            
-            # 处理常规缩略图
-            if isinstance(item[0], int):
-                idx, img, text, status, fg_color, row, col = item
-                
-                # 创建PhotoImage并保存引用
-                photo = ImageTk.PhotoImage(img)
-                thumbnail_images[idx] = photo
-                
-                # 创建并配置标签
-                lbl = tk.Label(thumbnail_frame,
-                              image=photo,
-                              text=text,
-                              compound="top",
-                              fg=fg_color,
-                              bd=0)
-                lbl.thumb_index = idx
-                lbl.selected = False
-                lbl.bind("<Button-1>", toggle_thumbnail_select)
-                
-                # 放置标签
-                lbl.grid(row=row, column=col, padx=5, pady=5)
-                thumbnail_frame.grid_columnconfigure(col, weight=1)
-                
-            # 处理"更多项目"提示
-            elif item[0] == 'more_info':
-                _, count, row, colspan = item
-                more_label = tk.Label(thumbnail_frame, 
-                                     text=f"+ {count} more items...",
-                                     fg="gray")
-                more_label.grid(row=row, column=0, columnspan=colspan, pady=10)
-    
-    except Exception as e:
-        print(f"Error updating thumbnail display: {e}")
-    
-    # 如果仍在加载或队列非空，继续调度更新
-    if thumbnail_loading or not thumbnail_queue.empty():
-        thumbnail_status_label.config(text=f"Loading thumbnails... ({len(thumbnail_images)}/{min(len(task_files), 50)})")
-        root.after(50, update_thumbnail_display)  # 50毫秒后再次检查
-    else:
-        # 加载完成，更新滚动区域
-        thumbnail_frame.update_idletasks()
-        thumbnail_canvas.configure(scrollregion=thumbnail_canvas.bbox("all"))
-        thumbnail_status_label.config(text="All thumbnails loaded")
-        thumbnail_status_label.after(2000, lambda: thumbnail_status_label.config(text=""))
-
 def update_task_display():
-    global thumbnail_images
-    if view_mode.get() == "list":
-        # 列表视图代码保持不变...
-        list_frame.grid()
-        thumbnail_container.grid_remove()
-        
+    """更新任务显示"""
+    try:
         # 清空当前列表
         for item in task_listbox.get_children():
             task_listbox.delete(item)
             
-        # 填充列表视图数据...
+        # 填充列表视图数据
         for idx, (f, status) in enumerate(task_files):
             try:
                 orig_dims, new_dims = calculate_new_dimensions(f, int(multiple_entry.get()), method_var.get(), trim_var.get())
@@ -767,69 +607,37 @@ def update_task_display():
                 print(f"Error processing list item {f}: {e}")
         
         task_listbox.tag_configure("done", foreground="green")
-    else:
-        # 缩略图视图 - 使用线程加载
-        list_frame.grid_remove()
-        thumbnail_container.grid()
         
-        # 清除现有缩略图
-        for widget in thumbnail_frame.winfo_children():
-            widget.destroy()
-        thumbnail_images = {}
-        
-        # 设置每行显示的项目数
-        items_per_row = 5
-        
-        # 显示加载状态
-        global thumbnail_status_label
-        thumbnail_status_label = tk.Label(thumbnail_frame, text="Loading thumbnails...", fg="blue")
-        thumbnail_status_label.grid(row=0, column=0, columnspan=items_per_row)
-        
-        # 启动缩略图加载线程
-        threading.Thread(
-            target=load_thumbnails_thread,
-            args=(task_files, int(multiple_entry.get()), method_var.get(), trim_var.get(), items_per_row),
-            daemon=True
-        ).start()
-        
-        # 开始定时更新UI
-        root.after(100, update_thumbnail_display)
+    except Exception as e:
+        print(f"Error updating task display: {e}")
 def remove_selected_task():
+    """删除选中的任务"""
     global task_files
-    if view_mode.get() == "list":
-        # 列表模式，使用 Listbox 的多选
+    
+    try:
+        # 列表模式
         selected_items = task_listbox.selection()
         selected_indices = []
         if selected_items:
-            # Get each selected item's index in the task_files list
+            # 获取每个选中项的索引
             for item in selected_items:
                 item_index = task_listbox.index(item)
                 selected_indices.append(item_index)
             
-            # Delete items in reverse order to avoid index shifting
+            # 倒序删除以避免索引偏移
             for index in sorted(selected_indices, reverse=True):
-                del task_files[index]
+                if 0 <= index < len(task_files):
+                    del task_files[index]
             
-            # Remove the selected items from the Treeview
+            # 从Treeview中移除选中项
             for item in selected_items:
                 task_listbox.delete(item)
-    else:
-        # 缩略图模式，根据每个标签的 selected 属性
-        selected_indices = []
-        for widget in thumbnail_frame.winfo_children():
-            if hasattr(widget, "selected") and widget.selected:
-                selected_indices.append(widget.thumb_index)
-        # 去除重复，倒序删除确保索引正确
-        for index in sorted(set(selected_indices), reverse=True):
-            del task_files[index]
-    update_task_display()
-def switch_view_mode():
-    if view_mode.get() == "list":
-        view_mode.set("thumbnail")
-    else:
-        view_mode.set("list")
-    update_task_display()
-
+        
+        # 更新显示
+        update_task_display()
+        
+    except Exception as e:
+        print(f"Error removing selected tasks: {e}")
 def calculate_new_dimensions(img_path, multiple, method, trim_enabled):
     """根据用户设置计算图片处理后的预期尺寸"""
     try:
@@ -880,19 +688,23 @@ def toggle_always_on_top():
 
 def update_target_sizes(*args):
     """当用户修改倍数、方法或预裁剪设置时，更新所有任务的目标尺寸"""
-    if view_mode.get() == "list" and task_files:
-        try:
-            multiple = int(multiple_entry.get())
-            method = method_var.get()
-            trim = trim_var.get()
-            
-            # 更新 Treeview 中的目标尺寸列
-            for idx, (f, status) in enumerate(task_files):
-                item_id = task_listbox.get_children()[idx]
-                orig_dims, new_dims = calculate_new_dimensions(f, multiple, method, trim)
-                task_listbox.set(item_id, "new_size", f"{new_dims[0]}x{new_dims[1]}")
-        except Exception as e:
-            print(f"Error updating target sizes: {e}")
+    try:
+        if task_files:
+            try:
+                multiple = int(multiple_entry.get())
+                method = method_var.get()
+                trim = trim_var.get()
+                
+                # 更新 Treeview 中的目标尺寸列
+                for idx, (f, status) in enumerate(task_files):
+                    if idx < len(task_listbox.get_children()):
+                        item_id = task_listbox.get_children()[idx]
+                        orig_dims, new_dims = calculate_new_dimensions(f, multiple, method, trim)
+                        task_listbox.set(item_id, "new_size", f"{new_dims[0]}x{new_dims[1]}")
+            except Exception as e:
+                print(f"Error updating target sizes: {e}")
+    except Exception as e:
+        print(f"Error in update_target_sizes: {e}")
 
 # 绑定参数变更事件
 
@@ -901,40 +713,26 @@ def update_target_sizes(*args):
 # 创建主窗口
 root = TkinterDnD.Tk()
 # 添加在 root 创建后，设置窗口属性之前
+root.geometry("480x520")
 
 # 添加置顶功能和图标
 always_on_top = False
 
-# 加载 SVG 图标 (需要先在同目录下准备这两个 SVG 文件)
+# 加载图标文件
 try:
-    from PIL import Image, ImageTk
-    # 尝试加载 SVG 图标，如果没有或出错则使用文字按钮
-    pin_on_path = resource_path('ic_fluent_pin_48_regular.svg')
-    pin_off_path = resource_path('ic_fluent_pin_off_48_regular.svg')
-    
-    # 如果是 SVG，需要先转换为 PNG
-    import cairosvg  # 你可能需要安装这个库: pip install cairosvg
+    # 尝试加载PNG图标文件
+    pin_on_path = resource_path('pin_on.png')
+    pin_off_path = resource_path('pin_off.png')
     
     if os.path.exists(pin_on_path) and os.path.exists(pin_off_path):
-        # 转换 SVG 到 PNG，然后加载
-        temp_on = os.path.join(os.path.dirname(pin_on_path), 'temp_pin_on.png')
-        temp_off = os.path.join(os.path.dirname(pin_off_path), 'temp_pin_off.png')
-        
-        cairosvg.svg2png(url=pin_on_path, write_to=temp_on, output_width=24, output_height=24)
-        cairosvg.svg2png(url=pin_off_path, write_to=temp_off, output_width=24, output_height=24)
-        
-        pin_on_icon = ImageTk.PhotoImage(Image.open(temp_on))
-        pin_off_icon = ImageTk.PhotoImage(Image.open(temp_off))
-        
-        # 删除临时文件
-        os.remove(temp_on)
-        os.remove(temp_off)
+        pin_on_icon = ImageTk.PhotoImage(Image.open(pin_on_path).resize((24, 24)))
+        pin_off_icon = ImageTk.PhotoImage(Image.open(pin_off_path).resize((24, 24)))
     else:
-        # 如果找不到图标文件，使用简单文本按钮
+        # 如果找不到图标文件，使用文本按钮
         raise FileNotFoundError("Icon files not found")
 except Exception as e:
     print(f"Error loading pin icons: {e}")
-    # 使用 Unicode 字符作为备用图标
+    # 使用文本按钮作为备用
     pin_on_icon = None
     pin_off_icon = None
 root.title("Pixel magnification adjustment")
@@ -1046,11 +844,13 @@ task_frame.grid(row=8, column=0, rowspan=6, columnspan=3, padx=10, pady=5, stick
 task_frame.grid_columnconfigure(0, weight=1)
 task_frame.grid_rowconfigure(0, weight=1)
 
+# 创建列表视图
 list_frame = tk.Frame(task_frame)
 list_frame.grid(row=0, column=0, sticky="nsew")
 list_frame.grid_columnconfigure(0, weight=1)
 list_frame.grid_rowconfigure(0, weight=1)
-# 替换原有的 task_listbox 定义
+
+# 创建任务列表
 task_listbox = ttk.Treeview(list_frame, columns=("name", "orig_size", "new_size", "status"), 
                            selectmode="extended", show="headings", height=10)
 
@@ -1066,49 +866,7 @@ scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 task_listbox.configure(yscrollcommand=scrollbar.set)
 task_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-# 修改缩略图容器配置
-thumbnail_container = tk.Frame(task_frame)
-thumbnail_container.grid(row=0, column=0, sticky="nsew")
-thumbnail_container.grid_remove()  # 默认隐藏
-thumbnail_container.grid_columnconfigure(0, weight=1)
-thumbnail_container.grid_rowconfigure(0, weight=1)
 
-# 创建缩略图视图的滚动区域
-thumbnail_canvas = tk.Canvas(thumbnail_container, bg="white")
-thumbnail_scrollbar = ttk.Scrollbar(thumbnail_container, orient="vertical", command=thumbnail_canvas.yview)
-thumbnail_scrollbar_h = ttk.Scrollbar(thumbnail_container, orient="horizontal", command=thumbnail_canvas.xview)
-thumbnail_frame = tk.Frame(thumbnail_canvas, bg="white")
-
-# 配置横向和纵向滚动条
-thumbnail_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-thumbnail_scrollbar_h.pack(side=tk.BOTTOM, fill=tk.X)
-thumbnail_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-# 设置 canvas 可同时水平和垂直滚动
-thumbnail_canvas.configure(yscrollcommand=thumbnail_scrollbar.set, 
-                          xscrollcommand=thumbnail_scrollbar_h.set)
-
-# 将 frame 放入 canvas 中并配置
-thumbnail_canvas.create_window((0, 0), window=thumbnail_frame, anchor=tk.NW)
-
-# 配置 thumbnail_frame 以支持正确的网格布局
-def configure_thumbnail_layout(event=None):
-    # 设置内部frame的最小宽度为canvas宽度，确保网格布局正确显示
-    thumbnail_canvas.configure(scrollregion=thumbnail_canvas.bbox("all"))
-    thumbnail_frame.config(width=max(thumbnail_canvas.winfo_width(), 
-                                    len(task_files) * 150))  # 根据缩略图宽度调整
-
-thumbnail_frame.bind("<Configure>", configure_thumbnail_layout)
-thumbnail_canvas.bind("<Configure>", lambda e: thumbnail_frame.config(width=max(thumbnail_canvas.winfo_width(), 200)))
-
-
-
-# 切换视图
-view_mode = tk.StringVar(value="list")
-
-#切换视图按钮
-toggle_view_btn = Button(root, text="Toggle View", command=switch_view_mode)
-toggle_view_btn.grid(row=7, column=2, padx=10, pady=5, sticky='ew')
 
 # 添加移除选中按钮
 remove_selected_btn = Button(root, text="Remove Selected", command=remove_selected_task)
