@@ -1,4 +1,3 @@
-
 import sys
 import io
 import os
@@ -412,24 +411,30 @@ def quick_process_async_worker(files):
                     print(f"Debug: Skipping invalid file: {file_path}")
                     continue
                 processed_any = True
-                with Image.open(file_path) as img:
-                    new_img = process_image(img, multiple, method, trim_enabled)
-                    # 针对 JPEG 格式转换（JPEG 不支持透明通道）
-                    if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
-                        background = Image.new('RGB', new_img.size, (255, 255, 255))
-                        background.paste(new_img, mask=new_img.split()[3])
-                        new_img = background
-                    print(f"Debug: Saving image: {file_path}")
-                    new_img.save(file_path)
-                
-                # 更新任务状态
-                for index, (task_file, status) in enumerate(task_files):
-                    if task_file == file_path:
-                        task_files[index] = (task_file, "done")
-                        # 在主线程中更新单个任务状态
-                        root.after(0, lambda idx=index: update_single_task_status(idx, "done"))
-                        break
-                
+                try:
+                    with Image.open(file_path) as img:
+                        new_img = process_image(img, multiple, method, trim_enabled)
+                        # 针对 JPEG 格式转换（JPEG 不支持透明通道）
+                        if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                            background = Image.new('RGB', new_img.size, (255, 255, 255))
+                            background.paste(new_img, mask=new_img.split()[3])
+                            new_img = background
+                        print(f"Debug: Saving image: {file_path}")
+                        new_img.save(file_path)
+                    # 正常完成
+                    for index, (task_file, status) in enumerate(task_files):
+                        if task_file == file_path:
+                            task_files[index] = (task_file, "done")
+                            root.after(0, lambda idx=index: update_single_task_status(idx, "done"))
+                            break
+                except Exception as e:
+                    print(f"Error processing {file_path}: {e}")
+                    # 标记为 error
+                    for index, (task_file, status) in enumerate(task_files):
+                        if task_file == file_path:
+                            task_files[index] = (task_file, "error")
+                            root.after(0, lambda idx=index: update_single_task_status(idx, "error"))
+                            break
                 current_progress += 1
                 # 在主线程中更新进度条
                 def update_progress(prog, total):
@@ -552,10 +557,16 @@ def update_single_task_status(index, status):
     try:
         if index < len(task_listbox.get_children()):
             item_id = task_listbox.get_children()[index]
-            task_listbox.set(item_id, "status", "Done" if status == "done" else "Pending")
             if status == "done":
+                task_listbox.set(item_id, "status", "Done")
                 task_listbox.item(item_id, tags=("done",))
                 task_listbox.tag_configure("done", foreground="green")
+            elif status == "error":
+                task_listbox.set(item_id, "status", "Error")
+                task_listbox.item(item_id, tags=("error",))
+                task_listbox.tag_configure("error", foreground="red")
+            else:
+                task_listbox.set(item_id, "status", "Pending")
     except Exception as e:
         print(f"Error updating single task status: {e}")
     
@@ -628,21 +639,21 @@ def execute_async_worker():
                                 new_img = background
                             print(f"Saving processed image to: {out_file}")
                             new_img.save(out_file)
-                        
                     elif os.path.isdir(file_path):
                         # 对文件夹调用 process_folder 函数，并将输出目录设为 output_folder
                         print(f"Processing directory: {file_path}")
                         process_folder(file_path, output_folder, method, multiple, trim_enabled, process_subfolders)
-                        
                 except Exception as e:
                     print(f"Error processing {file_path}: {e}")
+                    # 标记为 error
+                    task_files[index] = (file_path, "error")
+                    root.after(0, lambda idx=index: update_single_task_status(idx, "error"))
+                else:
+                    # 标记当前任务已完成
+                    task_files[index] = (file_path, "done")
+                    root.after(0, lambda idx=index: update_single_task_status(idx, "done"))
                 
-                # 标记当前任务已完成
-                task_files[index] = (file_path, "done")
-                
-                # 更新进度
                 current_progress += 1
-                
                 # 在主线程中更新UI - 使用捕获的变量
                 def update_ui(idx, prog):
                     update_single_task_status(idx, "done")
