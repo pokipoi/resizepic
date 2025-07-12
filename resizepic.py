@@ -497,6 +497,19 @@ def clear_all_tasks():
     task_files.clear()
     # 更新显示
     update_task_display()
+    
+def update_single_task_status(index, status):
+    """只更新单个任务的状态，避免重建整个列表"""
+    try:
+        if index < len(task_listbox.get_children()):
+            item_id = task_listbox.get_children()[index]
+            task_listbox.set(item_id, "status", "Done" if status == "done" else "Pending")
+            if status == "done":
+                task_listbox.item(item_id, tags=("done",))
+                task_listbox.tag_configure("done", foreground="green")
+    except Exception as e:
+        print(f"Error updating single task status: {e}")
+    
 def execute():
     global task_files
 
@@ -579,7 +592,12 @@ def execute():
                 print(f"Error processing {file_path}: {e}")
             # 标记当前任务已完成
             task_files[index] = (file_path, "done")
-            # update_task_display()
+                        # 只更新单个项目状态，不重建整个列表
+            update_single_task_status(index, "done")
+            
+            current_progress += 1
+            progress_bar['value'] = current_progress
+            root.update_idletasks()
     progress_label.config(text="Done!")
 
 def handle_quick_drop(event):
