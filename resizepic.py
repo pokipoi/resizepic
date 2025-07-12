@@ -132,7 +132,7 @@ def open_config():
     config_path = resource_path('config.ini')
     try:
         # 打开 config.ini
-        os.system(f'notepad "{config_path}"')
+        os.system(f'powershell -Command "Start-Process notepad \'{config_path}\' -Verb runAs"')
         # 记事本关闭后，重新读取配置并刷新界面
         config = read_config()
         input_folder_entry.delete(0, tk.END)
@@ -407,6 +407,10 @@ def quick_process_async_worker(files):
             # 如果是图片文件
             if os.path.isfile(file_path) and file_path.lower().endswith(
                     ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                if os.path.basename(file_path).startswith("."):
+                    # 如果是无效文件，跳过处理
+                    print(f"Debug: Skipping invalid file: {file_path}")
+                    continue
                 processed_any = True
                 with Image.open(file_path) as img:
                     new_img = process_image(img, multiple, method, trim_enabled)
