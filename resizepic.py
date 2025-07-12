@@ -94,19 +94,28 @@ def save_config():
             print(f"Error getting column widths: {e}")
             # 如果获取失败，使用默认值
             current_column_widths = ['200', '100', '100', '80']
+            
+                # 读取旧的 config.ini
+        config_path = resource_path('config.ini')
+        old_config = configparser.ConfigParser()
+        if os.path.exists(config_path):
+            old_config.read(config_path, encoding='utf-8')
+            old_autoload = old_config['DEFAULT'].get('AutoLoadDefaultFolder', '1')
+        else:
+            old_autoload = '1'
         
         # Save current settings to config
         config = configparser.ConfigParser()
         config['DEFAULT'] = {
-            'DefaultInFolder': input_folder_entry.get(),
-            'DefaultOutFolder': output_folder_entry.get(),
-            'DefaulMultiplied': multiple_entry.get(),
-            'DefaulMode': method_var.get(),
-            'DefaulPretrimState': '1' if trim_var.get() else '0',
-            'ProcessSubfolders': '1' if subfolder_var.get() else '0',
-            'AutoLoadDefaultFolder': '1',  # 保持为1，用户可以在config.ini中手动修改
-            'ColumnWidths': ','.join(current_column_widths)
-        }
+                    'DefaultInFolder': input_folder_entry.get(),
+                    'DefaultOutFolder': output_folder_entry.get(),
+                    'DefaulMultiplied': multiple_entry.get(),
+                    'DefaulMode': method_var.get(),
+                    'DefaulPretrimState': '1' if trim_var.get() else '0',
+                    'ProcessSubfolders': '1' if subfolder_var.get() else '0',
+                    'AutoLoadDefaultFolder': old_autoload,
+                    'ColumnWidths': ','.join(current_column_widths)
+                }
         
         config_path = resource_path('config.ini') 
         with open(config_path, 'w', encoding='utf-8') as f:
@@ -120,30 +129,21 @@ def save_config():
 
 
 def open_config():
-    config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    config_path = resource_path('config.ini')
     try:
-        # Store original modification time
-        original_mtime = os.path.getmtime(config_path) if os.path.exists(config_path) else None
-        
-        # Open config in Notepad
+        # 打开 config.ini
         os.system(f'notepad "{config_path}"')
-        
-        # Wait for Notepad to close and check if file was modified
-        if original_mtime and os.path.exists(config_path):
-            new_mtime = os.path.getmtime(config_path)
-            if new_mtime > original_mtime:
-                # Reload configuration
-                config = read_config()
-                # Update UI with new values
-                input_folder_entry.delete(0, tk.END)
-                input_folder_entry.insert(0, config.get('DefaultInFolder'))
-                output_folder_entry.delete(0, tk.END)
-                output_folder_entry.insert(0, config.get('DefaultOutFolder'))
-                multiple_entry.delete(0, tk.END)
-                multiple_entry.insert(0, config.get('DefaulMultiplied'))
-                method_var.set(config.get('DefaulMode'))
-                trim_var.set(config.get('DefaulPretrimState') == '1')
-                
+        # 记事本关闭后，重新读取配置并刷新界面
+        config = read_config()
+        input_folder_entry.delete(0, tk.END)
+        input_folder_entry.insert(0, config.get('DefaultInFolder', os.path.join(get_desktop_path(), "input")))
+        output_folder_entry.delete(0, tk.END)
+        output_folder_entry.insert(0, config.get('DefaultOutFolder', os.path.join(get_desktop_path(), "output")))
+        multiple_entry.delete(0, tk.END)
+        multiple_entry.insert(0, config.get('DefaulMultiplied', '2'))
+        method_var.set(config.get('DefaulMode', 'Extend'))
+        trim_var.set(config.get('DefaulPretrimState', '0') == '1')
+        subfolder_var.set(config.get('ProcessSubfolders', '0') == '1')
     except Exception as e:
         print(f"Error handling config file: {e}")
 
