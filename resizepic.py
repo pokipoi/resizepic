@@ -185,29 +185,41 @@ def update_task_done(index):
        缩略图视图中会显示处理完成后的缩略图以及绿色 done 字样"""
     task_files[index] = (task_files[index][0], "done")
     update_task_display()
-# 修改用于 input_folder_entry 拖入的处理函数（也适用于 choose按钮）
+# 新增：异步收集图片文件并批量加入任务列表，避免UI阻塞
+import threading
+
+def add_tasks_from_path_async(paths, clear_before_add=False, entry_widget=None):
+    def worker():
+        all_new_files = []
+        for p in paths:
+            all_new_files.extend(add_tasks_from_path(p))
+        def update_ui():
+            if clear_before_add:
+                clear_all_tasks()
+            if entry_widget and paths:
+                entry_widget.delete(0, tk.END)
+                entry_widget.insert(0, paths[0])
+            if all_new_files:
+                add_to_task_list(all_new_files)
+        root.after(0, update_ui)
+    threading.Thread(target=worker, daemon=True).start()
+
+# 修改 handle_drop 使用异步
+
 def handle_drop(entry, event):
     print("Handling drop event...")
     try:
         data = event.data
         if isinstance(data, bytes):
             data = data.decode('utf-8')
-        # 清理路径字符串，支持多个拖入
         matches = re.findall(r'{([^}]+)}|(\S+)', data)
         paths = [grp[0] if grp[0] else grp[1] for grp in matches]
         paths = [os.path.normpath(p) for p in paths if os.path.exists(p)]
         if not paths:
             print("No valid paths found!")
             return
-        # 更新输入框显示第一个路径
-        entry.delete(0, tk.END)
-        entry.insert(0, paths[0])
-        # 对每个路径，收集图片文件并加入待处理任务列表
-        all_new_files = []
-        for p in paths:
-            all_new_files.extend(add_tasks_from_path(p))
-        if all_new_files:
-            add_to_task_list(all_new_files)
+        # 异步收集并加入任务
+        add_tasks_from_path_async(paths, clear_before_add=False, entry_widget=entry)
         root.update_idletasks()
     except Exception as e:
         print(f"Error in handle_drop: {e}")
@@ -233,11 +245,8 @@ def handle_output_drop(entry, event):
 def select_input_folder():
     folder = filedialog.askdirectory()
     if folder:
-        input_folder_entry.delete(0, 'end')
-        input_folder_entry.insert(0, folder)
-        files = add_tasks_from_path(folder)
-        if files:
-            add_to_task_list(files)
+        # 异步收集并清空旧任务
+        add_tasks_from_path_async([folder], clear_before_add=True, entry_widget=input_folder_entry)
 
 def _process_image_cpu(img, multiple, method, trim_enabled):
     """
@@ -718,30 +727,32 @@ def handle_task_list_drop(event):
         print(f"Error in handle_task_list_drop: {e}")
 
 def update_task_display():
-    """更新任务显示"""
+    """更新任务显示，首次只显示文件名和状态，尺寸列为--，后台异步批量读取尺寸后再更新UI"""
     try:
         # 清空当前列表
         for item in task_listbox.get_children():
             task_listbox.delete(item)
-            
-        # 填充列表视图数据
+        # 填充列表视图数据（初始不计算尺寸）
         for idx, (f, status) in enumerate(task_files):
-            try:
-                orig_dims, new_dims = calculate_new_dimensions(f, int(multiple_entry.get()), method_var.get(), trim_var.get())
-                
-                item_id = task_listbox.insert("", "end", 
-                                            values=(os.path.basename(f), 
-                                                    f"{orig_dims[0]}x{orig_dims[1]}",
-                                                    f"{new_dims[0]}x{new_dims[1]}",
-                                                    "Done" if status == "done" else "Pending"))
-                
-                if status == "done":
-                    task_listbox.item(item_id, tags=("done",))
-            except Exception as e:
-                print(f"Error processing list item {f}: {e}")
-        
+            item_id = task_listbox.insert("", "end", 
+                values=(os.path.basename(f), "--", "--", "Done" if status == "done" else "Pending"))
+            if status == "done":
+                task_listbox.item(item_id, tags=("done",))
         task_listbox.tag_configure("done", foreground="green")
-        
+        # 启动后台线程批量读取尺寸
+        def batch_update_dimensions():
+            for idx, (f, status) in enumerate(task_files):
+                try:
+                    orig_dims, new_dims = calculate_new_dimensions(f, int(multiple_entry.get()), method_var.get(), trim_var.get())
+                    def update_item(i=idx, o=orig_dims, n=new_dims):
+                        if i < len(task_listbox.get_children()):
+                            item_id = task_listbox.get_children()[i]
+                            task_listbox.set(item_id, "orig_size", f"{o[0]}x{o[1]}")
+                            task_listbox.set(item_id, "new_size", f"{n[0]}x{n[1]}")
+                    root.after(0, update_item)
+                except Exception as e:
+                    pass  # 忽略单个文件错误
+        threading.Thread(target=batch_update_dimensions, daemon=True).start()
     except Exception as e:
         print(f"Error updating task display: {e}")
 def remove_selected_task():
