@@ -70,7 +70,7 @@ def build_executable():
         if dest == "filenames" and value:
             py_file = Path(value).name  # 使用相对路径
         elif dest == "onefile" and value:
-            cmd.append("--onefile")
+            cmd.append("--onedir")
         elif dest == "console" and not value:
             cmd.append("--noconsole")
         elif dest == "icon_file" and value:

@@ -33,7 +33,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-OutputDir=C:\Users\WorkUser\OneDrive\bat\resizepic\setup
+OutputDir=C:\Users\kiuolata\OneDrive\bat\resizepic\setup
 OutputBaseFilename=resizepic_setup
 SolidCompression=yes
 WizardStyle=modern
@@ -45,8 +45,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\WorkUser\OneDrive\bat\resizepic\output\resizepic\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\WorkUser\OneDrive\bat\resizepic\output\resizepic\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\Users\kiuolata\OneDrive\bat\resizepic\output\resizepic\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\kiuolata\OneDrive\bat\resizepic\output\resizepic\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
