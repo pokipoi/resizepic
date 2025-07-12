@@ -341,17 +341,35 @@ def process_folder(input_path, output_path, method, multiple, trim_enabled, proc
 
 
 def quick_process(files):
-        # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
+    """启动QuickDrop异步处理"""
+    # 检查是否已有任务在运行
+    if hasattr(quick_process, 'is_running') and quick_process.is_running:
+        progress_label.config(text="QuickDrop already running!")
+        return
+    
+    # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
     for index, (file_path, status) in enumerate(task_files):
         if status == "done":
             task_files[index] = (file_path, "pending")
     update_task_display()
 
-    progress_bar['value'] = 0
-    progress_label.config(text="")  # 清除之前的完成提示
-    root.update_idletasks()
-    
+    # 启动异步处理线程
+    processing_thread = threading.Thread(
+        target=quick_process_async_worker,
+        args=(files,),
+        daemon=True
+    )
+    processing_thread.start()
+
+def quick_process_async_worker(files):
+    """QuickDrop的异步工作线程"""
     try:
+        quick_process.is_running = True
+        
+        # 在主线程中初始化UI
+        root.after(0, lambda: progress_bar.config(value=0))
+        root.after(0, lambda: progress_label.config(text="QuickDrop processing..."))
+        
         method = method_var.get()
         multiple = int(multiple_entry.get())
         trim_enabled = trim_var.get()
@@ -379,10 +397,7 @@ def quick_process(files):
             return count
         
         total_files = count_images(files)
-        progress_bar.config(maximum=total_files)
-        progress_bar['value'] = 0
-        progress_label.config(text="")
-        root.update_idletasks()
+        root.after(0, lambda: progress_bar.config(maximum=total_files))
 
         current_progress = 0
         processed_any = False
@@ -403,16 +418,22 @@ def quick_process(files):
                     print(f"Debug: Saving image: {file_path}")
                     new_img.save(file_path)
                 
-                # 在任务列表中标记为已完成并使用单项更新
+                # 更新任务状态
                 for index, (task_file, status) in enumerate(task_files):
                     if task_file == file_path:
                         task_files[index] = (task_file, "done")
-                        update_single_task_status(index, "done")  # 使用单项更新
+                        # 在主线程中更新单个任务状态
+                        root.after(0, lambda idx=index: update_single_task_status(idx, "done"))
                         break
                 
                 current_progress += 1
-                progress_bar['value'] = current_progress
-                root.update_idletasks()
+                # 在主线程中更新进度条
+                def update_progress(prog, total):
+                    progress_bar.config(value=prog)
+                    progress_label.config(text=f"QuickDrop processing... {prog}/{total}")
+                    root.update_idletasks()
+                
+                root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
             
             # 如果是文件夹
             elif os.path.isdir(file_path):
@@ -435,8 +456,13 @@ def quick_process(files):
                                         new_img = background
                                     new_img.save(img_path)
                                 current_progress += 1
-                                progress_bar['value'] = current_progress
-                                root.update_idletasks()
+                                # 在主线程中更新进度条
+                                def update_progress(prog, total):
+                                    progress_bar.config(value=prog)
+                                    progress_label.config(text=f"QuickDrop processing... {prog}/{total}")
+                                    root.update_idletasks()
+                                
+                                root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
                 else:
                     # 仅处理目录根下的图片
                     for filename in os.listdir(file_path):
@@ -453,32 +479,42 @@ def quick_process(files):
                                     new_img = background
                                 new_img.save(img_path)
                             current_progress += 1
-                            progress_bar['value'] = current_progress
-                            root.update_idletasks()
+                            # 在主线程中更新进度条
+                            def update_progress(prog, total):
+                                progress_bar.config(value=prog)
+                                progress_label.config(text=f"QuickDrop processing... {prog}/{total}")
+                                root.update_idletasks()
+                            
+                            root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
                 
-                # 使用单项更新标记文件夹中所有处理过的文件为已完成
+                # 更新文件夹中所有处理过的文件状态
                 for processed_file in processed_files_in_dir:
                     for index, (task_file, status) in enumerate(task_files):
                         if task_file == processed_file:
                             task_files[index] = (task_file, "done")
-                            update_single_task_status(index, "done")  # 使用单项更新
+                            # 在主线程中更新单个任务状态
+                            root.after(0, lambda idx=index: update_single_task_status(idx, "done"))
                             break
                 
-                # 使用单项更新标记文件夹本身为已完成
+                # 更新文件夹本身状态
                 for index, (task_file, status) in enumerate(task_files):
                     if task_file == file_path:
                         task_files[index] = (task_file, "done")
-                        update_single_task_status(index, "done")  # 使用单项更新
+                        # 在主线程中更新单个任务状态
+                        root.after(0, lambda idx=index: update_single_task_status(idx, "done"))
                         break
         
+        # 在主线程中更新最终状态
         if processed_any:
-            progress_label.config(text="Quick process done!", fg="#9bd300")
+            root.after(0, lambda: progress_label.config(text="Quick process done!", fg="#9bd300"))
         else:
-            progress_label.config(text="No images found!")
+            root.after(0, lambda: progress_label.config(text="No images found!"))
             
     except Exception as e:
         print(f"Error in quick process: {e}")
-        progress_label.config(text="Error!")
+        root.after(0, lambda: progress_label.config(text="Error!"))
+    finally:
+        quick_process.is_running = False
 def select_input_folder():
     folder = filedialog.askdirectory()
     if folder:
@@ -520,94 +556,106 @@ def update_single_task_status(index, status):
         print(f"Error updating single task status: {e}")
     
 def execute():
+    """启动异步执行图片处理任务"""
     global task_files
-
+    
+    # 检查是否已有任务在运行
+    if hasattr(execute, 'is_running') and execute.is_running:
+        progress_label.config(text="Task already running!")
+        return
+    
     # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
     for index, (file_path, status) in enumerate(task_files):
         if status == "done":
             task_files[index] = (file_path, "pending")
     update_task_display()
 
-    progress_bar['value'] = 0
-    progress_label.config(text="")  # 清除之前的完成提示
-    root.update_idletasks()
-    
-    multiple = int(multiple_entry.get())
-    method = method_var.get()
-    trim_enabled = trim_var.get()
-    process_subfolders = subfolder_var.get()
-    output_folder = output_folder_entry.get()
-    
-    # 重新计算待处理图片总数，用于设置进度条
-    def count_images(files_list):
-        count = 0
-        for file_path, _ in files_list:
-            if os.path.isfile(file_path) and file_path.lower().endswith(
-                    ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
-                count += 1
-            elif os.path.isdir(file_path):
-                if process_subfolders:
-                    for root_dir, _, filenames in os.walk(file_path):
-                        for filename in filenames:
-                            if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
-                                count += 1
-                else:
-                    for filename in os.listdir(file_path):
-                        if filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif', 'bmp')):
-                            count += 1
-        return count
+    # 启动异步处理线程
+    processing_thread = threading.Thread(
+        target=execute_async_worker,
+        daemon=True
+    )
+    processing_thread.start()
 
-    total = count_images(task_files)
-    progress_bar.config(maximum=total)
-    current_progress = 0
+def execute_async_worker():
+    """异步执行的工作线程"""
+    try:
+        execute.is_running = True
+        
+        # 在主线程中初始化UI
+        root.after(0, lambda: progress_bar.config(value=0))
+        root.after(0, lambda: progress_label.config(text="Processing..."))
+        
+        multiple = int(multiple_entry.get())
+        method = method_var.get()
+        trim_enabled = trim_var.get()
+        process_subfolders = subfolder_var.get()
+        output_folder = output_folder_entry.get()
+        
+        # 计算待处理任务总数
+        total_tasks = len([f for f, status in task_files if status != "done"])
+        root.after(0, lambda: progress_bar.config(maximum=total_tasks))
+        current_progress = 0
 
-    for index, (file_path, status) in enumerate(task_files):
-        # 只处理未处理项
-        if status != "done":
-            print(f"Processing: {file_path}")
-            try:
-                if os.path.isfile(file_path) and file_path.lower().endswith(
-                        ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
-                    # 如果文件在输入文件夹内，则保留相对路径，否则仅取文件名
-                    input_folder = input_folder_entry.get()
-                    abs_file = os.path.abspath(file_path)
-                    abs_input = os.path.abspath(input_folder)
-                    if abs_file.startswith(abs_input):
-                        relative = os.path.relpath(file_path, input_folder)
-                    else:
-                        relative = os.path.basename(file_path)
-                    out_file = os.path.join(output_folder, relative)
-                    os.makedirs(os.path.dirname(out_file), exist_ok=True)
-                    
-                    with Image.open(file_path) as img:
-                        new_img = process_image(img, multiple, method, trim_enabled)
-                        # 针对 JPEG 格式转换（JPEG 不支持透明通道）
-                        if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
-                            background = Image.new('RGB', new_img.size, (255, 255, 255))
-                            background.paste(new_img, mask=new_img.split()[3])
-                            new_img = background
-                        print(f"Saving processed image to: {out_file}")
-                        new_img.save(out_file)
-                    current_progress += 1
-                    progress_bar['value'] = current_progress
+        for index, (file_path, status) in enumerate(task_files):
+            # 只处理未处理项
+            if status != "done":
+                print(f"Processing: {file_path}")
+                try:
+                    if os.path.isfile(file_path) and file_path.lower().endswith(
+                            ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
+                        # 如果文件在输入文件夹内，则保留相对路径，否则仅取文件名
+                        input_folder = input_folder_entry.get()
+                        abs_file = os.path.abspath(file_path)
+                        abs_input = os.path.abspath(input_folder)
+                        if abs_file.startswith(abs_input):
+                            relative = os.path.relpath(file_path, input_folder)
+                        else:
+                            relative = os.path.basename(file_path)
+                        out_file = os.path.join(output_folder, relative)
+                        os.makedirs(os.path.dirname(out_file), exist_ok=True)
+                        
+                        with Image.open(file_path) as img:
+                            new_img = process_image(img, multiple, method, trim_enabled)
+                            # 针对 JPEG 格式转换（JPEG 不支持透明通道）
+                            if file_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
+                                background = Image.new('RGB', new_img.size, (255, 255, 255))
+                                background.paste(new_img, mask=new_img.split()[3])
+                                new_img = background
+                            print(f"Saving processed image to: {out_file}")
+                            new_img.save(out_file)
+                        
+                    elif os.path.isdir(file_path):
+                        # 对文件夹调用 process_folder 函数，并将输出目录设为 output_folder
+                        print(f"Processing directory: {file_path}")
+                        process_folder(file_path, output_folder, method, multiple, trim_enabled, process_subfolders)
+                        
+                except Exception as e:
+                    print(f"Error processing {file_path}: {e}")
+                
+                # 标记当前任务已完成
+                task_files[index] = (file_path, "done")
+                
+                # 更新进度
+                current_progress += 1
+                
+                # 在主线程中更新UI - 使用捕获的变量
+                def update_ui(idx, prog):
+                    update_single_task_status(idx, "done")
+                    progress_bar.config(value=prog)
+                    progress_label.config(text=f"Processing... {prog}/{total_tasks}")
                     root.update_idletasks()
-                    
-                elif os.path.isdir(file_path):
-                    # 对文件夹调用 process_folder 函数，并将输出目录设为 output_folder
-                    print(f"Processing directory: {file_path}")
-                    process_folder(file_path, output_folder, method, multiple, trim_enabled, process_subfolders)
-                    # 此处对于文件夹内的进度更新较难精确计数，可按实际情况调节
-            except Exception as e:
-                print(f"Error processing {file_path}: {e}")
-            # 标记当前任务已完成
-            task_files[index] = (file_path, "done")
-                        # 只更新单个项目状态，不重建整个列表
-            update_single_task_status(index, "done")
-            
-            current_progress += 1
-            progress_bar['value'] = current_progress
-            root.update_idletasks()
-    progress_label.config(text="Done!")
+                
+                root.after(0, lambda idx=index, prog=current_progress: update_ui(idx, prog))
+        
+        # 完成后在主线程中更新UI
+        root.after(0, lambda: progress_label.config(text="Done!"))
+        
+    except Exception as e:
+        print(f"Error in async execute: {e}")
+        root.after(0, lambda: progress_label.config(text="Error!"))
+    finally:
+        execute.is_running = False
 
 def handle_quick_drop(event):
     try:
