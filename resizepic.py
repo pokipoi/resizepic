@@ -601,6 +601,13 @@ def execute():
     )
     processing_thread.start()
 
+# 全局暂停控制
+is_paused = False
+pause_event = threading.Event()
+pause_event.set()  # 初始为未暂停
+
+# 修改 execute_async_worker，支持暂停
+
 def execute_async_worker():
     """异步执行的工作线程"""
     try:
@@ -622,6 +629,9 @@ def execute_async_worker():
         current_progress = 0
 
         for index, (file_path, status) in enumerate(task_files):
+            # 支持暂停
+            while is_paused:
+                pause_event.wait()
             # 只处理未处理项
             if status != "done":
                 print(f"Processing: {file_path}")
@@ -680,6 +690,29 @@ def execute_async_worker():
         root.after(0, lambda: progress_label.config(text="Error!"))
     finally:
         execute.is_running = False
+        root.after(0, lambda: run_pause_btn.config(text="Run"))
+
+def toggle_run_pause():
+    global is_paused
+    if not hasattr(execute, 'is_running') or not execute.is_running:
+        # 没有任务在运行，启动任务
+        execute()
+        run_pause_btn.config(text="Pause")
+        is_paused = False
+        pause_event.set()
+    else:
+        if not is_paused:
+            # 正在运行，点击后暂停
+            is_paused = True
+            pause_event.clear()
+            run_pause_btn.config(text="Resume")
+            progress_label.config(text="Paused")
+        else:
+            # 已暂停，点击后继续
+            is_paused = False
+            pause_event.set()
+            run_pause_btn.config(text="Pause")
+            progress_label.config(text="Resuming...")
 
 def handle_quick_drop(event):
     try:
@@ -1040,8 +1073,9 @@ remove_selected_btn.grid(row=7, column=0, padx=1, pady=1, sticky='ew')
 clear_all_btn = Button(root, text="Clear All Tasks", command=clear_all_tasks)
 clear_all_btn.grid(row=7, column=1, padx=1, pady=1, sticky='ew')
 
-# 执行按钮
-Button(root, text="run", command=execute, width=35).grid(row=5, column=1, padx=10, pady=5)
+# 替换原有 run 按钮为合并按钮
+run_pause_btn = Button(root, text="Run", command=toggle_run_pause, width=35)
+run_pause_btn.grid(row=5, column=1, padx=10, pady=5)
 Button(root, text="config", command=open_config, width=8).grid(row=5, column=2, padx=10, pady=5,sticky='e')
 
 root.protocol("WM_DELETE_WINDOW", save_config)
