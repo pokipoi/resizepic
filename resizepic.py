@@ -341,6 +341,16 @@ def process_folder(input_path, output_path, method, multiple, trim_enabled, proc
 
 
 def quick_process(files):
+        # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
+    for index, (file_path, status) in enumerate(task_files):
+        if status == "done":
+            task_files[index] = (file_path, "pending")
+    update_task_display()
+
+    progress_bar['value'] = 0
+    progress_label.config(text="")  # 清除之前的完成提示
+    root.update_idletasks()
+    
     try:
         method = method_var.get()
         multiple = int(multiple_entry.get())
@@ -393,15 +403,15 @@ def quick_process(files):
                     print(f"Debug: Saving image: {file_path}")
                     new_img.save(file_path)
                 
-                # 在任务列表中标记为已完成
+                # 在任务列表中标记为已完成并使用单项更新
                 for index, (task_file, status) in enumerate(task_files):
                     if task_file == file_path:
                         task_files[index] = (task_file, "done")
+                        update_single_task_status(index, "done")  # 使用单项更新
                         break
                 
                 current_progress += 1
                 progress_bar['value'] = current_progress
-                update_task_display()  # 更新显示状态
                 root.update_idletasks()
             
             # 如果是文件夹
@@ -446,20 +456,20 @@ def quick_process(files):
                             progress_bar['value'] = current_progress
                             root.update_idletasks()
                 
-                # 标记文件夹中所有处理过的文件为已完成
+                # 使用单项更新标记文件夹中所有处理过的文件为已完成
                 for processed_file in processed_files_in_dir:
                     for index, (task_file, status) in enumerate(task_files):
                         if task_file == processed_file:
                             task_files[index] = (task_file, "done")
+                            update_single_task_status(index, "done")  # 使用单项更新
                             break
                 
-                # 标记文件夹本身为已完成
+                # 使用单项更新标记文件夹本身为已完成
                 for index, (task_file, status) in enumerate(task_files):
                     if task_file == file_path:
                         task_files[index] = (task_file, "done")
+                        update_single_task_status(index, "done")  # 使用单项更新
                         break
-                
-                # update_task_display()  # 更新显示状态
         
         if processed_any:
             progress_label.config(text="Quick process done!", fg="#9bd300")
@@ -469,7 +479,6 @@ def quick_process(files):
     except Exception as e:
         print(f"Error in quick process: {e}")
         progress_label.config(text="Error!")
-   
 def select_input_folder():
     folder = filedialog.askdirectory()
     if folder:
