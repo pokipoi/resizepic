@@ -64,7 +64,9 @@ def read_config():
         'DefaulMultiplied': '2',
         'DefaulMode': 'Extend',
         'DefaulPretrimState': '0',
-        'ProcessSubfolders': '0' 
+        'ProcessSubfolders': '0',
+        'AutoloadDefaultFolder': '1',
+        'ColumnWidths': '200,100,100,80'
     }
     
     if not os.path.exists(config_path):
@@ -82,6 +84,16 @@ def read_config():
 
 def save_config():
     try:
+        # 获取当前列宽
+        current_column_widths = []
+        try:
+            for col in ("name", "orig_size", "new_size", "status"):
+                current_column_widths.append(str(task_listbox.column(col, "width")))
+        except Exception as e:
+            print(f"Error getting column widths: {e}")
+            # 如果获取失败，使用默认值
+            current_column_widths = ['200', '100', '100', '80']
+        
         # Save current settings to config
         config = configparser.ConfigParser()
         config['DEFAULT'] = {
@@ -90,7 +102,9 @@ def save_config():
             'DefaulMultiplied': multiple_entry.get(),
             'DefaulMode': method_var.get(),
             'DefaulPretrimState': '1' if trim_var.get() else '0',
-            'ProcessSubfolders': '1' if subfolder_var.get() else '0'
+            'ProcessSubfolders': '1' if subfolder_var.get() else '0',
+            'AutoLoadDefaultFolder': '1',  # 保持为1，用户可以在config.ini中手动修改
+            'ColumnWidths': ','.join(current_column_widths)
         }
         
         config_path = resource_path('config.ini') 
@@ -860,6 +874,27 @@ task_listbox.heading("orig_size", text="Original Size")
 task_listbox.heading("new_size", text="Target Size")
 task_listbox.heading("status", text="Status")
 
+# 恢复保存的列宽设置
+try:
+    column_widths = config.get('ColumnWidths', '200,100,100,80').split(',')
+    columns = ("name", "orig_size", "new_size", "status")
+    
+    for i, col in enumerate(columns):
+        if i < len(column_widths):
+            width = int(column_widths[i])
+            task_listbox.column(col, width=width, minwidth=50)
+        else:
+            # 如果配置中列宽数量不足，使用默认值
+            default_widths = [200, 100, 100, 80]
+            task_listbox.column(col, width=default_widths[i], minwidth=50)
+except Exception as e:
+    print(f"Error setting column widths: {e}")
+    # 如果恢复列宽失败，使用默认值
+    task_listbox.column("name", width=200, minwidth=50)
+    task_listbox.column("orig_size", width=100, minwidth=50)
+    task_listbox.column("new_size", width=100, minwidth=50)
+    task_listbox.column("status", width=80, minwidth=50)
+
 # 添加垂直滚动条
 scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=task_listbox.yview)
 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -880,13 +915,18 @@ Button(root, text="config", command=open_config, width=8).grid(row=5, column=2, 
 
 root.protocol("WM_DELETE_WINDOW", save_config)
 
-default_input_folder = input_folder_entry.get()
-if os.path.exists(default_input_folder):
-    new_files = add_tasks_from_path(default_input_folder)
-    if new_files:
-        add_to_task_list(new_files)
+if config.get('AutoLoadDefaultFolder', '1') == '1':
+    default_input_folder = input_folder_entry.get()
+    if os.path.exists(default_input_folder):
+        new_files = add_tasks_from_path(default_input_folder)
+        if new_files:
+            add_to_task_list(new_files)
+    else:
+        print(f"Input folder not found: {default_input_folder}")
 else:
-    print(f"Input folder not found: {default_input_folder}")
+    # 如果不自动加载，清除输入栏的文字
+    input_folder_entry.delete(0, tk.END)
+
 
 multiple_entry.bind("<KeyRelease>", update_target_sizes)
 method_var.trace("w", update_target_sizes)
