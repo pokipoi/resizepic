@@ -14,6 +14,7 @@ from PIL import Image, ImageTk
 
 
 from tkinter import Tk, Label, Entry, Button, filedialog, StringVar, OptionMenu, BooleanVar, Checkbutton
+from cv2 import add
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image, ImageTk
 Image.MAX_IMAGE_PIXELS = None  # 禁用解压炸弹警告
@@ -343,7 +344,7 @@ def quick_process(files):
     try:
         method = method_var.get()
         multiple = int(multiple_entry.get())
-        trim_enabled = trim_var.get()   # 获取是否启用 pretrim
+        trim_enabled = trim_var.get()
         process_subfolders = subfolder_var.get()
         
         # 预计算待处理图片总数，用于设置进度条
@@ -391,13 +392,23 @@ def quick_process(files):
                         new_img = background
                     print(f"Debug: Saving image: {file_path}")
                     new_img.save(file_path)
+                
+                # 在任务列表中标记为已完成
+                for index, (task_file, status) in enumerate(task_files):
+                    if task_file == file_path:
+                        task_files[index] = (task_file, "done")
+                        break
+                
                 current_progress += 1
                 progress_bar['value'] = current_progress
+                update_task_display()  # 更新显示状态
                 root.update_idletasks()
             
             # 如果是文件夹
             elif os.path.isdir(file_path):
                 print(f"Debug: Directory found: {file_path}")
+                processed_files_in_dir = []
+                
                 if process_subfolders:
                     for root_dir, _, filenames in os.walk(file_path):
                         for filename in filenames:
@@ -405,6 +416,7 @@ def quick_process(files):
                                     ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                                 processed_any = True
                                 img_path = os.path.join(root_dir, filename)
+                                processed_files_in_dir.append(img_path)
                                 with Image.open(img_path) as img:
                                     new_img = process_image(img, multiple, method, trim_enabled)
                                     if img_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
@@ -422,6 +434,7 @@ def quick_process(files):
                                 ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                             processed_any = True
                             img_path = os.path.join(file_path, filename)
+                            processed_files_in_dir.append(img_path)
                             with Image.open(img_path) as img:
                                 new_img = process_image(img, multiple, method, trim_enabled)
                                 if img_path.lower().endswith(('.jpg', '.jpeg')) and new_img.mode == 'RGBA':
@@ -432,8 +445,24 @@ def quick_process(files):
                             current_progress += 1
                             progress_bar['value'] = current_progress
                             root.update_idletasks()
+                
+                # 标记文件夹中所有处理过的文件为已完成
+                for processed_file in processed_files_in_dir:
+                    for index, (task_file, status) in enumerate(task_files):
+                        if task_file == processed_file:
+                            task_files[index] = (task_file, "done")
+                            break
+                
+                # 标记文件夹本身为已完成
+                for index, (task_file, status) in enumerate(task_files):
+                    if task_file == file_path:
+                        task_files[index] = (task_file, "done")
+                        break
+                
+                # update_task_display()  # 更新显示状态
+        
         if processed_any:
-            progress_label.config(text="Quick process done!",fg="#9bd300")
+            progress_label.config(text="Quick process done!", fg="#9bd300")
         else:
             progress_label.config(text="No images found!")
             
@@ -550,7 +579,7 @@ def execute():
                 print(f"Error processing {file_path}: {e}")
             # 标记当前任务已完成
             task_files[index] = (file_path, "done")
-            update_task_display()
+            # update_task_display()
     progress_label.config(text="Done!")
 
 def handle_quick_drop(event):
@@ -568,6 +597,7 @@ def handle_quick_drop(event):
             for p in paths:
                 quick_files.extend(add_tasks_from_path(p))
             if quick_files:
+                add_to_task_list(quick_files) 
                 quick_process(quick_files)
             else:
                 progress_label.config(text="No images found!")
