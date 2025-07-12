@@ -1,2 +1,7 @@
-output/config.ini
-dist/resizepic.exe
+output/
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
