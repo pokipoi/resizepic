@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "resizepic"
-#define MyAppVersion "1.5"
+#define MyAppVersion "1.7"
 #define MyAppPublisher "pokipoi"
 #define MyAppURL "https://github.com/pokipoi/resizepic"
 #define MyAppExeName "resizepic.exe"
@@ -33,7 +33,7 @@ AllowNoIcons=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=C:\Users\KIUOLATA\OneDrive\bat\resizepic\setup
-OutputBaseFilename=resizepic_setup
+OutputBaseFilename=resizepic_setup{#MyAppVersion}
 SetupIconFile=C:\Users\KIUOLATA\OneDrive\bat\resizepic\resize.ico
 SolidCompression=yes
 WizardStyle=modern
