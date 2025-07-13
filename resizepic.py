@@ -442,7 +442,7 @@ def quick_process(files):
     if hasattr(quick_process, 'is_running') and quick_process.is_running:
         progress_label.config(text="QuickDrop already running!")
         return
-    
+    run_pause_btn.config(state="disabled")
     # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
     for index, (file_path, status) in enumerate(task_files):
         if status == "done":
@@ -621,6 +621,7 @@ def quick_process_async_worker(files):
         root.after(0, lambda: progress_label.config(text="Error!"))
     finally:
         quick_process.is_running = False
+        root.after(0, lambda: run_pause_btn.config(state="normal"))
 def select_input_folder():
     folder = filedialog.askdirectory()
     if folder:
@@ -855,8 +856,9 @@ def update_task_display():
             task_listbox.delete(item)
         # 填充列表视图数据（初始不计算尺寸）
         for idx, (f, status) in enumerate(task_files):
+            display_name = f"{idx+1}. {os.path.basename(f)}"
             item_id = task_listbox.insert("", "end", 
-                values=(os.path.basename(f), "--", "--", "Done" if status == "done" else "Pending"))
+                values=(display_name, "--", "--", "Done" if status == "done" else "Pending"))
             if status == "done":
                 task_listbox.item(item_id, tags=("done",))
         task_listbox.tag_configure("done", foreground="green")
@@ -877,11 +879,9 @@ def update_task_display():
     except Exception as e:
         print(f"Error updating task display: {e}")
 def remove_selected_task():
-    """删除选中的任务"""
+    """删除选中的任务（只移除，不刷新全部尺寸）"""
     global task_files
-    
     try:
-        # 列表模式
         selected_items = task_listbox.selection()
         selected_indices = []
         if selected_items:
@@ -889,19 +889,21 @@ def remove_selected_task():
             for item in selected_items:
                 item_index = task_listbox.index(item)
                 selected_indices.append(item_index)
-            
             # 倒序删除以避免索引偏移
             for index in sorted(selected_indices, reverse=True):
                 if 0 <= index < len(task_files):
                     del task_files[index]
-            
             # 从Treeview中移除选中项
             for item in selected_items:
                 task_listbox.delete(item)
-        
-        # 更新显示
-        update_task_display()
-        
+            # 重新编号剩余项
+            for idx, item_id in enumerate(task_listbox.get_children()):
+                old_values = list(task_listbox.item(item_id, "values"))
+                # 只改第一列编号
+                if old_values:
+                    filename = old_values[0].split('. ', 1)[-1]
+                    old_values[0] = f"{idx+1}. {filename}"
+                    task_listbox.item(item_id, values=old_values)
     except Exception as e:
         print(f"Error removing selected tasks: {e}")
 def calculate_new_dimensions(img_path, multiple, method, trim_enabled):
