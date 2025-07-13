@@ -10,8 +10,8 @@
    "value": "C:\\Users\\kiuolata\\OneDrive\\bat\\resizepic\\resizepic.py"
   },
   {
-   "optionDest": "onedir",
-   "value": true
+   "optionDest": "onefile",
+   "value": false
   },
   {
    "optionDest": "console",
@@ -55,15 +55,15 @@
   },
   {
    "optionDest": "datas",
-   "value": "C:\\Users\\KIUOLATA\\.conda\\envs\\dev\\lib\\site-packages\\tkdnd;tkdnd/"
-  },
-  {
-   "optionDest": "datas",
-   "value": "C:\\Users\\KIUOLATA\\.conda\\envs\\dev\\lib\\site-packages\\tkinterdnd2;tkinterdnd2/"
-  },
-  {
-   "optionDest": "datas",
    "value": "C:/Users/kiuolata/OneDrive/bat/resizepic/icon.ico;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/KIUOLATA/OneDrive/bat/resizepic/pin_off.png;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/KIUOLATA/OneDrive/bat/resizepic/pin_on.png;."
   }
  ],
  "nonPyinstallerOptions": {

@@ -10,8 +10,9 @@ LANGUAGES = {
         'progress': 'Progress:',
         'quick_drop': 'Quick Drop',
         'remove_selected': 'Remove Selected',
-        'clear_all': 'Clear All Tasks',
+        'clear_all': 'Clear All',
         'run': 'Run',
+        'select': 'Select',
         'config': 'config',
         'file_name': 'File Name',
         'original_size': 'Original Size',
@@ -44,6 +45,7 @@ LANGUAGES = {
         'remove_selected': '移除选中',
         'clear_all': '清空任务',
         'run': '开始',
+        'select': '选择',
         'config': '配置',
         'file_name': '文件名',
         'original_size': '原始尺寸',
@@ -71,7 +73,6 @@ LANGUAGES = {
 import sys
 import io
 import os
-import time
 import re
 import os.path
 import winreg
@@ -79,54 +80,58 @@ import configparser
 import tkinter as tk
 import tkinter.font as tkfont
 import threading
-import queue
+import shutil
 from PIL import Image, ImageTk
 
 
-from tkinter import Tk, Label, Entry, Button, filedialog, StringVar, OptionMenu, BooleanVar, Checkbutton
-from cv2 import add
+from tkinter import Label, Entry, Button, filedialog, StringVar, BooleanVar, Checkbutton, ttk
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image, ImageTk
+from gpu_processor_opencl import process_image_opencl 
 Image.MAX_IMAGE_PIXELS = None  # 禁用解压炸弹警告
 
 # 先定义resource_path函数
 def resource_path(relative_path):
-    """
-    获取资源文件的绝对路径，打包后返回 exe 所在的目录（而非临时解压目录）
-    """
-    if getattr(sys, 'frozen', False):  # 如果是打包后运行
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.abspath(".")
+    # 1. 优先查找 _internal 目录（onedir模式）
+    base_path = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.abspath(".")
+    internal_path = os.path.join(base_path, '_internal', relative_path)
+    if os.path.exists(internal_path):
+        return internal_path
+
+    # 2. onefile模式下，资源在 sys._MEIPASS
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        meipass_path = os.path.join(sys._MEIPASS, relative_path)
+        if os.path.exists(meipass_path):
+            return meipass_path
+
+    # 3. 开发环境或找不到时，返回当前目录
     return os.path.join(base_path, relative_path)
 
-# Cairo错误处理 - 简化图标加载逻辑
-try:
-    # 尝试直接加载PNG/ICO图标，不使用SVG转换
-    pin_on_path = resource_path('pin_on.png')  # 改为直接使用PNG图标
-    pin_off_path = resource_path('pin_off.png')
-    
-    if os.path.exists(pin_on_path) and os.path.exists(pin_off_path):
-        pin_on_icon = ImageTk.PhotoImage(Image.open(pin_on_path).resize((24, 24)))
-        pin_off_icon = ImageTk.PhotoImage(Image.open(pin_off_path).resize((24, 24)))
-    else:
-        # 图标文件不存在，使用文本按钮
-        raise FileNotFoundError("Icon files not found")
-except Exception as e:
-    print(f"Using text icon instead: {e}")
-    # 使用Unicode字符作为备用图标
-    pin_on_icon = None
-    pin_off_icon = None
 
-from tkinter import ttk
-from gpu_processor_opencl import process_image_opencl 
 if getattr(sys.stdout, 'buffer', None):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 task_files = []
+
+def get_user_config_path():
+    # 推荐用APPDATA
+    appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
+    config_dir = os.path.join(appdata, 'resizepic')
+    os.makedirs(config_dir, exist_ok=True)
+    return os.path.join(config_dir, 'config.ini')
+
+def ensure_user_config():
+    user_config = get_user_config_path()
+    if not os.path.exists(user_config):
+        # 假设sys._MEIPASS或os.path.dirname(sys.argv[0])有默认config.ini
+        default_config = resource_path('config.ini')
+        if os.path.exists(default_config):
+            shutil.copy(default_config, user_config)
+    return user_config
+
 def read_config():
     config = configparser.ConfigParser()
-    config_path = resource_path('config.ini') 
+    config_path = get_user_config_path()
     # 设置默认值
     default_config = {
         'DefaultInFolder': os.path.join(get_desktop_path(), "input"),
@@ -135,9 +140,11 @@ def read_config():
         'DefaulMode': 'Extend',
         'DefaulPretrimState': '0',
         'ProcessSubfolders': '0',
-        'AutoloadDefaultFolder': '1',
+        'GpuProcessing': '0',
+        'AutoloadDefaultFolder': '0',
         'ColumnWidths': '129,116,123,75',
         'Language': 'en',
+        'WindowGeometry': '568x550+277+243'
     }
     if not os.path.exists(config_path):
         config['DEFAULT'] = default_config
@@ -153,14 +160,25 @@ def read_config():
 
 def save_config():
     try:
-        global lang_code 
-        
-        # 重新读取 config.ini，获取用户可能手动更改的 Language
-        config_path = resource_path('config.ini')
+        global lang_code
+        config_path = get_user_config_path()
+        config = configparser.ConfigParser()
+        # 先读取已有配置，避免丢失其它字段
         if os.path.exists(config_path):
-            tmp_config = configparser.ConfigParser()
-            tmp_config.read(config_path, encoding='utf-8')
-            lang_code = tmp_config['DEFAULT'].get('Language', lang_code)
+            config.read(config_path, encoding='utf-8')
+        else:
+            config['DEFAULT'] = {}
+
+        # 保存窗口大小
+        window_geometry = root.winfo_geometry()
+
+        # 重新读取 config.ini，获取用户可能手动更改的 Language
+        if 'DEFAULT' in config:
+            lang_code = config['DEFAULT'].get('Language', lang_code)
+        else:
+            config['DEFAULT'] = {}
+            lang_code = 'zh'
+
         # 获取当前列宽
         current_column_widths = []
         try:
@@ -168,37 +186,29 @@ def save_config():
                 current_column_widths.append(str(task_listbox.column(col, "width")))
         except Exception as e:
             print(f"Error getting column widths: {e}")
-            # 如果获取失败，使用默认值
             current_column_widths = ['200', '100', '100', '80']
-            
-                # 读取旧的 config.ini
-        config_path = resource_path('config.ini')
-        old_config = configparser.ConfigParser()
-        if os.path.exists(config_path):
-            old_config.read(config_path, encoding='utf-8')
-            old_autoload = old_config['DEFAULT'].get('AutoLoadDefaultFolder', '1')
-        else:
-            old_autoload = '1'
-        
-        # Save current settings to config
-        config = configparser.ConfigParser()
-        config['DEFAULT'] = {
-                    'DefaultInFolder': input_folder_entry.get(),
-                    'DefaultOutFolder': output_folder_entry.get(),
-                    'DefaulMultiplied': multiple_entry.get(),
-                    'DefaulMode': method_var.get(),
-                    'DefaulPretrimState': '1' if trim_var.get() else '0',
-                    'ProcessSubfolders': '1' if subfolder_var.get() else '0',
-                    'AutoLoadDefaultFolder': old_autoload,
-                    'ColumnWidths': ','.join(current_column_widths),
-                    'Language': lang_code,  # 使用当前语言设置
-                }
-        
-        config_path = resource_path('config.ini') 
+
+        # 读取旧的 AutoLoadDefaultFolder
+        old_autoload = config['DEFAULT'].get('AutoLoadDefaultFolder', '1')
+
+        # 更新配置
+        config['DEFAULT'].update({
+            'DefaultInFolder': input_folder_entry.get(),
+            'DefaultOutFolder': output_folder_entry.get(),
+            'DefaulMultiplied': multiple_entry.get(),
+            'DefaulMode': method_var.get(),
+            'DefaulPretrimState': '1' if trim_var.get() else '0',
+            'ProcessSubfolders': '1' if subfolder_var.get() else '0',
+            'GpuProcessing': '1' if gpu_var.get() else '0', 
+            'AutoLoadDefaultFolder': old_autoload,
+            'ColumnWidths': ','.join(current_column_widths),
+            'Language': lang_code,
+            'WindowGeometry': window_geometry
+        })
+
         with open(config_path, 'w', encoding='utf-8') as f:
             config.write(f)
-            
-        # Destroy the window
+
         root.destroy()
     except Exception as e:
         print(f"Error saving config on exit: {e}")
@@ -206,10 +216,10 @@ def save_config():
 
 
 def open_config():
-    config_path = resource_path('config.ini')
+    config_path = get_user_config_path()
     try:
         # 打开 config.ini
-        os.system(f'powershell -Command "Start-Process notepad \'{config_path}\' -Verb runAs"')
+        os.startfile(config_path) 
         # 记事本关闭后，重新读取配置并刷新界面
         config = read_config()
         input_folder_entry.delete(0, tk.END)
@@ -971,7 +981,9 @@ def update_target_sizes(*args):
 config = read_config()
 lang_code = config.get('Language', 'zh')
 LANG = LANGUAGES.get(lang_code, LANGUAGES['zh'])
+
 root = TkinterDnD.Tk()
+
 if lang_code == 'zh':
     default_font = tkfont.nametofont("TkDefaultFont")
     default_font.config(family="Microsoft YaHei", size=10)
@@ -981,9 +993,28 @@ else:
     default_font.config(family="Segoe UI", size=10)
     root.option_add("*Font", "{Segoe UI} 10")
 
-
+# try:
+#     # 尝试直接加载PNG/ICO图标，不使用SVG转换
+#     pin_on_path = resource_path('pin_on.png')  # 改为直接使用PNG图标
+#     pin_off_path = resource_path('pin_off.png')
+    
+#     if os.path.exists(pin_on_path) and os.path.exists(pin_off_path):
+#         pin_on_icon = ImageTk.PhotoImage(Image.open(pin_on_path).resize((24, 24)))
+#         pin_off_icon = ImageTk.PhotoImage(Image.open(pin_off_path).resize((24, 24)))
+#     else:
+#         # 图标文件不存在，使用文本按钮
+#         raise FileNotFoundError("Icon files not found")
+# except Exception as e:
+#     print(f"Using text icon instead: {e}")
+#     # 使用Unicode字符作为备用图标
+#     pin_on_icon = None
+#     pin_off_icon = None
+    
 # 添加在 root 创建后，设置窗口属性之前
 root.geometry("480x520")
+window_geometry = config.get('WindowGeometry')
+if window_geometry:
+    root.geometry(window_geometry)
 
 # 添加置顶功能和图标
 always_on_top = False
@@ -1019,10 +1050,6 @@ except Exception as e:
 if pin_on_icon and pin_off_icon:
     pin_button = tk.Button(root, image=pin_off_icon, command=toggle_always_on_top, 
                           bd=0, highlightthickness=0, relief="flat")
-else:
-    # 如果图标加载失败，使用文字按钮
-    pin_button = tk.Button(root, text="📌", command=toggle_always_on_top,
-                          bd=0, highlightthickness=0, relief="flat")
 
 pin_button.grid(row=21, column=2, padx=10, pady=5, sticky='se')
 
@@ -1042,7 +1069,7 @@ input_folder_entry.grid(row=0, column=1, padx=10, pady=5)
 input_folder_entry.insert(0, config.get('DefaultInFolder', os.path.join(get_desktop_path(), "input")))
 input_folder_entry.drop_target_register(DND_FILES)
 input_folder_entry.dnd_bind('<<Drop>>', lambda e: (handle_drop(input_folder_entry, e), root.update()))
-Button(root, text=LANG['run'], command=select_input_folder).grid(row=0, column=2, padx=10, pady=5, sticky='e')
+Button(root, text=LANG['select'], command=select_input_folder).grid(row=0, column=2, padx=10, pady=5, sticky='e')
 
 # 输出文件夹
 Label(root, text=LANG['output']).grid(row=1, column=0, padx=10, pady=5, sticky='w')
@@ -1051,7 +1078,7 @@ output_folder_entry.grid(row=1, column=1, padx=10, pady=5)
 output_folder_entry.insert(0, config.get('DefaultOutFolder', os.path.join(get_desktop_path(), "output")))
 output_folder_entry.drop_target_register(DND_FILES)
 output_folder_entry.dnd_bind('<<Drop>>', lambda e: (handle_output_drop(output_folder_entry, e), root.update()))
-Button(root, text=LANG['run'], command=select_output_folder).grid(row=1, column=2, padx=10, pady=5, sticky='e')
+Button(root, text=LANG['select'], command=select_output_folder).grid(row=1, column=2, padx=10, pady=5, sticky='e')
 
 # 倍率
 Label(root, text=LANG['multiplier']).grid(row=2, column=0, padx=10, pady=5, sticky='w')
@@ -1085,7 +1112,7 @@ trim_var.set(config.get('DefaulPretrimState'))
 gpu_var = BooleanVar()
 gpu_checkbox = Checkbutton(root, text=LANG['gpu_processing'], variable=gpu_var)
 gpu_checkbox.grid(row=4, column=2, padx=10, pady=5, sticky='e')
-gpu_var.set(False)
+gpu_var.set(config.get('GpuProcessing', '0') == '1') 
 
 # 添加Process Subfolders 复选框
 subfolder_var = BooleanVar()
