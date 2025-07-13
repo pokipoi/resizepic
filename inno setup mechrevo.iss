@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "resizepic"
-#define MyAppVersion "1.7"
+#define MyAppVersion "1.8"
 #define MyAppPublisher "pokipoi"
 #define MyAppURL "https://github.com/pokipoi/resizepic"
 #define MyAppExeName "resizepic.exe"
@@ -10,6 +10,7 @@
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
+
 AppId={{D906F655-FAC2-4456-97D9-69195EA031D4}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -20,6 +21,8 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+
+
 ; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
 ; on anything but x64 and Windows 11 on Arm.
 ArchitecturesAllowed=x64compatible
@@ -32,9 +35,13 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
+
+
 OutputDir=C:\Users\KIUOLATA\OneDrive\bat\resizepic\setup
 OutputBaseFilename=resizepic_setup{#MyAppVersion}
 SetupIconFile=C:\Users\KIUOLATA\OneDrive\bat\resizepic\resize.ico
+WizardSmallImageFile=C:\Users\KIUOLATA\OneDrive\bat\resizepic\small.bmp
+WizardImageFile=C:\Users\KIUOLATA\OneDrive\bat\resizepic\wizard.bmp
 SolidCompression=yes
 WizardStyle=modern
 
