@@ -32,7 +32,7 @@ LANGUAGES = {
         'no_images_found': 'No images found!',
         'quickdrop_already_running': 'QuickDrop already running!',
         'quickdrop_processing': 'QuickDrop processing...',
-        'quickdrop_done': 'Quick process done!',
+        'Quick process done!': 'Quick process done!',
     },
     'zh': {
         'input': '输入文件夹:',
@@ -65,7 +65,7 @@ LANGUAGES = {
         'no_images_found': '未找到图片!',
         'quickdrop_already_running': '快速处理正在运行!',
         'quickdrop_processing': '快速处理...',
-        'quickdrop_done': '快速处理完成!',
+        'Quick process done!': '快速处理完成!',
     }
 }
 
@@ -452,7 +452,7 @@ def quick_process(files):
     """启动QuickDrop异步处理"""
     # 检查是否已有任务在运行
     if hasattr(quick_process, 'is_running') and quick_process.is_running:
-        progress_label.config(text="QuickDrop already running!")
+        progress_label.config(text=LANG["QuickDrop already running!"])
         return
     run_pause_btn.config(state="disabled")
     # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
@@ -476,8 +476,8 @@ def quick_process_async_worker(files):
         
         # 在主线程中初始化UI
         root.after(0, lambda: progress_bar.config(value=0))
-        root.after(0, lambda: progress_label.config(text="QuickDrop processing..."))
-        
+        root.after(0, lambda: progress_label.config(text=LANG["QuickDrop processing..."]))
+
         method = method_var.get()
         multiple = int(multiple_entry.get())
         trim_enabled = trim_var.get()
@@ -553,7 +553,7 @@ def quick_process_async_worker(files):
                 # 在主线程中更新进度条
                 def update_progress(prog, total):
                     progress_bar.config(value=prog)
-                    progress_label.config(text=f"QuickDrop processing... {prog}/{total}")
+                    progress_label.config(text=f"{LANG['QuickDrop processing...']} {prog}/{total}")
                     root.update_idletasks()
                 
                 root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
@@ -584,7 +584,7 @@ def quick_process_async_worker(files):
                                 # 在主线程中更新进度条
                                 def update_progress(prog, total):
                                     progress_bar.config(value=prog)
-                                    progress_label.config(text=f"QuickDrop processing... {prog}/{total}")
+                                    progress_label.config(text=f"{LANG['QuickDrop processing...']} {prog}/{total}")
                                     root.update_idletasks()
                                 
                                 root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
@@ -607,7 +607,7 @@ def quick_process_async_worker(files):
                             # 在主线程中更新进度条
                             def update_progress(prog, total):
                                 progress_bar.config(value=prog)
-                                progress_label.config(text=f"QuickDrop processing... {prog}/{total}")
+                                progress_label.config(text=f"{LANG['QuickDrop processing...']} {prog}/{total}")
                                 root.update_idletasks()
                             
                             root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
@@ -631,14 +631,14 @@ def quick_process_async_worker(files):
         
         # 在主线程中更新最终状态
         if processed_any:
-            root.after(0, lambda: progress_label.config(text="Quick process done!", fg="#9bd300"))
+            root.after(0, lambda: progress_label.config(text=LANG["Quick process done!"], fg="#9bd300"))
         else:
-            root.after(0, lambda: progress_label.config(text="No images found!"))
-            
+            root.after(0, lambda: progress_label.config(text=LANG["No images found!"]))
+
     except Exception as e:
         if DEBUG:
             print(f"Error in quick process: {e}")
-        root.after(0, lambda: progress_label.config(text="Error!"))
+        root.after(0, lambda: progress_label.config(text=LANG["Error!"]))
     finally:
         quick_process.is_running = False
         root.after(0, lambda: run_pause_btn.config(state="normal"))
@@ -695,7 +695,7 @@ def execute():
     
     # 检查是否已有任务在运行
     if hasattr(execute, 'is_running') and execute.is_running:
-        progress_label.config(text="Task already running!")
+        progress_label.config(text=LANG["Task already running!"])
         return
     
     # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
@@ -725,8 +725,8 @@ def execute_async_worker():
         
         # 在主线程中初始化UI
         root.after(0, lambda: progress_bar.config(value=0))
-        root.after(0, lambda: progress_label.config(text="Processing..."))
-        
+        root.after(0, lambda: progress_label.config(text=LANG["Processing..."]))
+
         multiple = int(multiple_entry.get())
         method = method_var.get()
         trim_enabled = trim_var.get()
@@ -791,28 +791,28 @@ def execute_async_worker():
                 def update_ui(idx, prog):
                     update_single_task_status(idx, "done")
                     progress_bar.config(value=prog)
-                    progress_label.config(text=f"Processing... {prog}/{total_tasks}")
+                    progress_label.config(text=f"{LANG['Processing...']} {prog}/{total_tasks}")
                     root.update_idletasks()
                 
                 root.after(0, lambda idx=index, prog=current_progress: update_ui(idx, prog))
         
         # 完成后在主线程中更新UI
-        root.after(0, lambda: progress_label.config(text="Done!"))
-        
+        root.after(0, lambda: progress_label.config(text=LANG["Done!"]))
+
     except Exception as e:
         if DEBUG:
             print(f"Error in async execute: {e}")
-        root.after(0, lambda: progress_label.config(text="Error!"))
+        root.after(0, lambda: progress_label.config(text=LANG["Error!"]))
     finally:
         execute.is_running = False
-        root.after(0, lambda: run_pause_btn.config(text="Run"))
+        root.after(0, lambda: run_pause_btn.config(text=LANG["Run"]))
 
 def toggle_run_pause():
     global is_paused
     if not hasattr(execute, 'is_running') or not execute.is_running:
         # 没有任务在运行，启动任务
         execute()
-        run_pause_btn.config(text="Pause")
+        run_pause_btn.config(text=LANG["Pause"])
         is_paused = False
         pause_event.set()
     else:
@@ -820,14 +820,14 @@ def toggle_run_pause():
             # 正在运行，点击后暂停
             is_paused = True
             pause_event.clear()
-            run_pause_btn.config(text="Resume")
-            progress_label.config(text="Paused")
+            run_pause_btn.config(text=LANG["Resume"])
+            progress_label.config(text=LANG["Paused"])
         else:
             # 已暂停，点击后继续
             is_paused = False
             pause_event.set()
-            run_pause_btn.config(text="Pause")
-            progress_label.config(text="Resuming...")
+            run_pause_btn.config(text=LANG["Pause"])
+            progress_label.config(text=LANG["Resuming..."])
 
 def handle_quick_drop(event):
     try:
@@ -837,7 +837,7 @@ def handle_quick_drop(event):
             paths = [grp[0] if grp[0] else grp[1] for grp in matches]
             paths = [os.path.normpath(p) for p in paths if os.path.exists(p)]
             if not paths:
-                progress_label.config(text="No valid files!")
+                progress_label.config(text=LANG["No valid files!"])
                 return
             # 对每个路径，收集图片文件
             quick_files = []
@@ -847,9 +847,9 @@ def handle_quick_drop(event):
                 add_to_task_list(quick_files) 
                 quick_process(quick_files)
             else:
-                progress_label.config(text="No images found!")
+                progress_label.config(text=LANG["No images found!"])
     except Exception as e:
-        progress_label.config(text=f"Error handling quick drop: {str(e)}")
+        progress_label.config(text=f"{LANG['Error handling quick drop:']} {str(e)}")
         if DEBUG:
             print(f"Error handling quick drop: {e}")
 
@@ -980,11 +980,9 @@ def toggle_always_on_top():
     
     # 更新按钮图标
     if always_on_top:
-        pin_button.config(image=pin_on_icon)
-        pin_button.config(background="#9bd300")  # 置顶时按钮背景变色
+        pin_button.config(image=pin_on_icon)  # 置顶时按钮背景变色
     else:
-        pin_button.config(image=pin_off_icon)
-        pin_button.config(background=root.cget('bg'))  # 恢复默认背景色
+        pin_button.config(image=pin_off_icon) # 恢复默认背景色
 
 def update_target_sizes(*args):
     """当用户修改倍数、方法或预裁剪设置时，更新所有任务的目标尺寸"""
