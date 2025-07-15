@@ -33,6 +33,7 @@ LANGUAGES = {
         'quickdrop_already_running': 'QuickDrop already running!',
         'quickdrop_processing': 'QuickDrop processing...',
         'Quick process done!': 'Quick process done!',
+        'opencl_not_available': 'OpenCL is not available!',
     },
     'zh': {
         'input': '输入文件夹:',
@@ -66,12 +67,13 @@ LANGUAGES = {
         'quickdrop_already_running': '快速处理正在运行!',
         'quickdrop_processing': '快速处理...',
         'Quick process done!': '快速处理完成!',
+        'opencl_not_available': 'OpenCL不可用!',
     }
 }
 
 
 
-
+import time
 import sys
 import io
 import os
@@ -87,9 +89,17 @@ from PIL import Image, ImageTk
 
 
 from tkinter import Label, Entry, Button, filedialog, StringVar, BooleanVar, Checkbutton, ttk
+
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image, ImageTk
-from gpu_processor_opencl import process_image_opencl 
+
+try:
+    import pyopencl
+    from gpu_processor_opencl import process_image_opencl 
+    OPENCL_AVAILABLE = True
+except ImportError:
+    OPENCL_AVAILABLE = False
+
 Image.MAX_IMAGE_PIXELS = None  # 禁用解压炸弹警告
 
 # 先定义resource_path函数
@@ -394,13 +404,21 @@ def process_image(img, multiple, method, trim_enabled):
     调用其他地方使用 process_image 的代码无需修改。
     """
     try:
-        use_gpu = gpu_var.get()
-    except Exception as e:
+        use_gpu = gpu_var.get() and OPENCL_AVAILABLE
+    except Exception:
         use_gpu = False
+    if DEBUG:
+        t0 = time.time()
     if use_gpu:
-        return process_image_opencl(img, multiple, method, trim_enabled)
+        result = process_image_opencl(img, multiple, method, trim_enabled)
+        if DEBUG:
+            print(f"[DEBUG] GPU处理用时: {time.time() - t0:.3f} 秒")
+        return result
     else:
-        return _process_image_cpu(img, multiple, method, trim_enabled)
+        result = _process_image_cpu(img, multiple, method, trim_enabled)
+        if DEBUG:
+            print(f"[DEBUG] CPU处理用时: {time.time() - t0:.3f} 秒")
+        return result
     
 def get_desktop_path():
     try:
@@ -473,10 +491,12 @@ def quick_process_async_worker(files):
     """QuickDrop的异步工作线程"""
     try:
         quick_process.is_running = True
+        if DEBUG:
+            total_start_time = time.time()
         
         # 在主线程中初始化UI
         root.after(0, lambda: progress_bar.config(value=0))
-        root.after(0, lambda: progress_label.config(text=LANG["QuickDrop processing..."]))
+        root.after(0, lambda: progress_label.config(text=LANG["quickdrop_processing"]))
 
         method = method_var.get()
         multiple = int(multiple_entry.get())
@@ -553,7 +573,7 @@ def quick_process_async_worker(files):
                 # 在主线程中更新进度条
                 def update_progress(prog, total):
                     progress_bar.config(value=prog)
-                    progress_label.config(text=f"{LANG['QuickDrop processing...']} {prog}/{total}")
+                    progress_label.config(text=f"{LANG['quickdrop_processing']} {prog}/{total}")
                     root.update_idletasks()
                 
                 root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
@@ -584,7 +604,7 @@ def quick_process_async_worker(files):
                                 # 在主线程中更新进度条
                                 def update_progress(prog, total):
                                     progress_bar.config(value=prog)
-                                    progress_label.config(text=f"{LANG['QuickDrop processing...']} {prog}/{total}")
+                                    progress_label.config(text=f"{LANG['quickdrop_processing']} {prog}/{total}")
                                     root.update_idletasks()
                                 
                                 root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
@@ -607,7 +627,7 @@ def quick_process_async_worker(files):
                             # 在主线程中更新进度条
                             def update_progress(prog, total):
                                 progress_bar.config(value=prog)
-                                progress_label.config(text=f"{LANG['QuickDrop processing...']} {prog}/{total}")
+                                progress_label.config(text=f"{LANG['quickdrop_processing']} {prog}/{total}")
                                 root.update_idletasks()
                             
                             root.after(0, lambda prog=current_progress, total=total_files: update_progress(prog, total))
@@ -634,6 +654,8 @@ def quick_process_async_worker(files):
             root.after(0, lambda: progress_label.config(text=LANG["Quick process done!"], fg="#9bd300"))
         else:
             root.after(0, lambda: progress_label.config(text=LANG["No images found!"]))
+        if DEBUG:
+            print(f"[DEBUG] QuickDrop处理总用时: {time.time() - total_start_time:.3f} 秒")
 
     except Exception as e:
         if DEBUG:
@@ -678,11 +700,11 @@ def update_single_task_status(index, status):
             if status == "done":
                 task_listbox.set(item_id, "status", "Done")
                 task_listbox.item(item_id, tags=("done",))
-                task_listbox.tag_configure("done", foreground="green")
+                task_listbox.tag_configure("done", foreground="#9bd300")
             elif status == "error":
                 task_listbox.set(item_id, "status", "Error")
                 task_listbox.item(item_id, tags=("error",))
-                task_listbox.tag_configure("error", foreground="red")
+                task_listbox.tag_configure("error", foreground="#d30000")
             else:
                 task_listbox.set(item_id, "status", "Pending")
     except Exception as e:
@@ -722,6 +744,8 @@ def execute_async_worker():
     """异步执行的工作线程"""
     try:
         execute.is_running = True
+        if DEBUG:
+            total_start_time = time.time()
         
         # 在主线程中初始化UI
         root.after(0, lambda: progress_bar.config(value=0))
@@ -798,6 +822,8 @@ def execute_async_worker():
         
         # 完成后在主线程中更新UI
         root.after(0, lambda: progress_label.config(text=LANG["Done!"]))
+        if DEBUG:
+            print(f"[DEBUG] Total processing time: {time.time() - total_start_time:.3f} seconds")
 
     except Exception as e:
         if DEBUG:
@@ -890,7 +916,7 @@ def update_task_display():
                 values=(display_name, "--", "--", "Done" if status == "done" else "Pending"))
             if status == "done":
                 task_listbox.item(item_id, tags=("done",))
-        task_listbox.tag_configure("done", foreground="green")
+        task_listbox.tag_configure("done", foreground="#9bd300")
         # 启动后台线程批量读取尺寸
         def batch_update_dimensions():
             for idx, (f, status) in enumerate(task_files):
@@ -1017,6 +1043,8 @@ lang_code = config.get('Language', 'zh')
 LANG = LANGUAGES.get(lang_code, LANGUAGES['zh'])
 
 root = TkinterDnD.Tk()
+style = ttk.Style(root)
+
 
 if lang_code == 'zh':
     default_font = tkfont.nametofont("TkDefaultFont")
@@ -1027,24 +1055,7 @@ else:
     default_font.config(family="Segoe UI", size=10)
     root.option_add("*Font", "{Segoe UI} 10")
 
-# try:
-#     # 尝试直接加载PNG/ICO图标，不使用SVG转换
-#     pin_on_path = resource_path('pin_on.png')  # 改为直接使用PNG图标
-#     pin_off_path = resource_path('pin_off.png')
-    
-#     if os.path.exists(pin_on_path) and os.path.exists(pin_off_path):
-#         pin_on_icon = ImageTk.PhotoImage(Image.open(pin_on_path).resize((24, 24)))
-#         pin_off_icon = ImageTk.PhotoImage(Image.open(pin_off_path).resize((24, 24)))
-#     else:
-#         # 图标文件不存在，使用文本按钮
-#         raise FileNotFoundError("Icon files not found")
-# except Exception as e:
-#     print(f"Using text icon instead: {e}")
-#     # 使用Unicode字符作为备用图标
-#     pin_on_icon = None
-#     pin_off_icon = None
-    
-# 添加在 root 创建后，设置窗口属性之前
+
 root.geometry("480x520")
 window_geometry = config.get('WindowGeometry')
 if window_geometry:
@@ -1133,7 +1144,6 @@ method_combo.grid(row=3, column=1, padx=10, pady=5)
 
 # 进度条
 Label(root, text=LANG['progress']).grid(row=4, column=0, padx=10, pady=5, sticky='w')
-style = ttk.Style(root)
 style.theme_use('default')
 style.configure("green.Horizontal.TProgressbar", troughcolor='#eff2c7', background='#9bd300')
 progress_bar = ttk.Progressbar(root, orient='horizontal', length=250, mode='determinate', style="green.Horizontal.TProgressbar")
@@ -1179,6 +1189,8 @@ task_frame.grid_columnconfigure(0, weight=1)
 task_frame.grid_rowconfigure(0, weight=1)
 
 # 创建列表视图
+
+
 list_frame = tk.Frame(task_frame)
 list_frame.grid(row=0, column=0, sticky="nsew")
 list_frame.grid_rowconfigure(0, weight=1)
