@@ -1186,7 +1186,9 @@ scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=task_listbox.yv
 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 task_listbox.configure(yscrollcommand=scrollbar.set)
 task_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
+# 让任务列表支持拖拽添加任务
+task_listbox.drop_target_register(DND_FILES)
+task_listbox.dnd_bind('<<Drop>>', handle_task_list_drop)
 
 
 # 添加移除选中按钮
