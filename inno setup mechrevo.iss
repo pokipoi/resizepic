@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "resizepic"
-#define MyAppVersion "1.8"
+#define MyAppVersion "1.9.0"
 #define MyAppPublisher "pokipoi"
 #define MyAppURL "https://github.com/pokipoi/resizepic"
 #define MyAppExeName "resizepic.exe"
