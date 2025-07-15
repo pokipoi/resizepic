@@ -1055,6 +1055,7 @@ if pin_on_icon and pin_off_icon:
 
 pin_button.grid(row=21, column=2, padx=10, pady=5, sticky='se')
 
+root.grid_rowconfigure(8, weight=1) 
 root.grid_columnconfigure(0, weight=1)
 root.grid_columnconfigure(1, weight=1)
 root.grid_columnconfigure(2, weight=1)
@@ -1137,7 +1138,7 @@ quick_drop_frame.dnd_bind('<<Drop>>', handle_quick_drop)
 
 # task_frame 跨 3 列，并在水平方向扩展
 task_frame = tk.Frame(root)
-task_frame.grid(row=8, column=0, rowspan=6, columnspan=3, padx=10, pady=5, sticky="ew")
+task_frame.grid(row=8, column=0, rowspan=6, columnspan=3, padx=10, pady=5, sticky="nsew")
 
 # 使 task_frame 内部第 0 列具有伸缩性
 task_frame.grid_columnconfigure(0, weight=1)
@@ -1146,8 +1147,8 @@ task_frame.grid_rowconfigure(0, weight=1)
 # 创建列表视图
 list_frame = tk.Frame(task_frame)
 list_frame.grid(row=0, column=0, sticky="nsew")
-list_frame.grid_columnconfigure(0, weight=1)
 list_frame.grid_rowconfigure(0, weight=1)
+list_frame.grid_columnconfigure(0, weight=1)
 
 # 创建任务列表
 task_listbox = ttk.Treeview(list_frame, columns=("name", "orig_size", "new_size", "status"), 
