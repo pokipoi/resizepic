@@ -1,3 +1,5 @@
+DEBUG = False
+
 LANGUAGES = {
     'en': {
         'input': 'input:',
@@ -185,7 +187,8 @@ def save_config():
             for col in ("name", "orig_size", "new_size", "status"):
                 current_column_widths.append(str(task_listbox.column(col, "width")))
         except Exception as e:
-            print(f"Error getting column widths: {e}")
+            if DEBUG:
+                print(f"Error getting column widths: {e}")
             current_column_widths = ['200', '100', '100', '80']
 
         # 读取旧的 AutoLoadDefaultFolder
@@ -211,7 +214,8 @@ def save_config():
 
         root.destroy()
     except Exception as e:
-        print(f"Error saving config on exit: {e}")
+        if DEBUG:
+            print(f"Error saving config on exit: {e}")
         root.destroy()
 
 
@@ -232,7 +236,8 @@ def open_config():
         trim_var.set(config.get('DefaulPretrimState', '0') == '1')
         subfolder_var.set(config.get('ProcessSubfolders', '0') == '1')
     except Exception as e:
-        print(f"Error handling config file: {e}")
+        if DEBUG:
+            print(f"Error handling config file: {e}")
 
 def add_tasks_from_path(path):
     """根据路径返回图片文件列表，按照Process Subfolders复选框过滤"""
@@ -295,7 +300,8 @@ def add_tasks_from_path_async(paths, clear_before_add=False, entry_widget=None):
 # 修改 handle_drop 使用异步
 
 def handle_drop(entry, event):
-    print("Handling drop event...")
+    if DEBUG:
+        print("Handling drop event...")
     try:
         data = event.data
         if isinstance(data, bytes):
@@ -304,13 +310,15 @@ def handle_drop(entry, event):
         paths = [grp[0] if grp[0] else grp[1] for grp in matches]
         paths = [os.path.normpath(p) for p in paths if os.path.exists(p)]
         if not paths:
-            print("No valid paths found!")
+            if DEBUG:
+                print("No valid paths found!")
             return
         # 异步收集并加入任务
         add_tasks_from_path_async(paths, clear_before_add=False, entry_widget=entry)
         root.update_idletasks()
     except Exception as e:
-        print(f"Error in handle_drop: {e}")
+        if DEBUG:
+            print(f"Error in handle_drop: {e}")
 
 def handle_output_drop(entry, event):
     try:
@@ -326,9 +334,11 @@ def handle_output_drop(entry, event):
             entry.delete(0, tk.END)
             entry.insert(0, valid_paths[0])
         else:
-            print("No valid directory dropped!")
+            if DEBUG:
+                print("No valid directory dropped!")
     except Exception as e:
-        print(f"Error in handle_output_drop: {e}")
+        if DEBUG:
+            print(f"Error in handle_output_drop: {e}")
 # 修改选择输入文件夹的函数，也加入任务列表
 def select_input_folder():
     folder = filedialog.askdirectory()
@@ -349,7 +359,8 @@ def _process_image_cpu(img, multiple, method, trim_enabled):
             if bbox:
                 img = img.crop(bbox)
         except Exception as e:
-            print(f"Warning: Could not trim image: {e}")
+            if DEBUG:
+                print(f"Warning: Could not trim image: {e}")
     
     width, height = img.size
     if method == "Stretch":
@@ -403,7 +414,8 @@ def get_desktop_path():
         winreg.CloseKey(key)
         return desktop_path
     except Exception as e:
-        print(f"Error getting desktop path: {e}")
+        if DEBUG:
+            print(f"Error getting desktop path: {e}")
         # 如果获取失败，返回默认桌面路径
         return os.path.join(os.path.expanduser("~"), "Desktop")
     
@@ -499,13 +511,15 @@ def quick_process_async_worker(files):
         processed_any = False
         
         for file_path in files:
-            print(f"Debug: Processing file: {file_path}")
+            if DEBUG:
+                print(f"Debug: Processing file: {file_path}")
             # 如果是图片文件
             if os.path.isfile(file_path) and file_path.lower().endswith(
                     ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
                 if os.path.basename(file_path).startswith("."):
                     # 如果是无效文件，跳过处理
-                    print(f"Debug: Skipping invalid file: {file_path}")
+                    if DEBUG:
+                        print(f"Debug: Skipping invalid file: {file_path}")
                     continue
                 processed_any = True
                 try:
@@ -516,7 +530,9 @@ def quick_process_async_worker(files):
                             background = Image.new('RGB', new_img.size, (255, 255, 255))
                             background.paste(new_img, mask=new_img.split()[3])
                             new_img = background
-                        print(f"Debug: Saving image: {file_path}")
+
+                        if DEBUG:
+                            print(f"Debug: Saving image: {file_path}")
                         new_img.save(file_path)
                     # 正常完成
                     for index, (task_file, status) in enumerate(task_files):
@@ -525,7 +541,8 @@ def quick_process_async_worker(files):
                             root.after(0, lambda idx=index: update_single_task_status(idx, "done"))
                             break
                 except Exception as e:
-                    print(f"Error processing {file_path}: {e}")
+                    if DEBUG:
+                        print(f"Error processing {file_path}: {e}")
                     # 标记为 error
                     for index, (task_file, status) in enumerate(task_files):
                         if task_file == file_path:
@@ -543,7 +560,9 @@ def quick_process_async_worker(files):
             
             # 如果是文件夹
             elif os.path.isdir(file_path):
-                print(f"Debug: Directory found: {file_path}")
+
+                if DEBUG:
+                    print(f"Debug: Directory found: {file_path}")
                 processed_files_in_dir = []
                 
                 if process_subfolders:
@@ -617,7 +636,8 @@ def quick_process_async_worker(files):
             root.after(0, lambda: progress_label.config(text="No images found!"))
             
     except Exception as e:
-        print(f"Error in quick process: {e}")
+        if DEBUG:
+            print(f"Error in quick process: {e}")
         root.after(0, lambda: progress_label.config(text="Error!"))
     finally:
         quick_process.is_running = False
@@ -666,8 +686,9 @@ def update_single_task_status(index, status):
             else:
                 task_listbox.set(item_id, "status", "Pending")
     except Exception as e:
-        print(f"Error updating single task status: {e}")
-    
+        if DEBUG:
+            print(f"Error updating single task status: {e}")
+
 def execute():
     """启动异步执行图片处理任务"""
     global task_files
@@ -723,7 +744,8 @@ def execute_async_worker():
                 pause_event.wait()
             # 只处理未处理项
             if status != "done":
-                print(f"Processing: {file_path}")
+                if DEBUG:
+                    print(f"Processing: {file_path}")
                 try:
                     if os.path.isfile(file_path) and file_path.lower().endswith(
                             ('png', 'jpg', 'jpeg', 'gif', 'bmp')):
@@ -745,14 +767,17 @@ def execute_async_worker():
                                 background = Image.new('RGB', new_img.size, (255, 255, 255))
                                 background.paste(new_img, mask=new_img.split()[3])
                                 new_img = background
-                            print(f"Saving processed image to: {out_file}")
+                            if DEBUG:
+                                print(f"Saving processed image to: {out_file}")
                             new_img.save(out_file)
                     elif os.path.isdir(file_path):
                         # 对文件夹调用 process_folder 函数，并将输出目录设为 output_folder
-                        print(f"Processing directory: {file_path}")
+                        if DEBUG:
+                            print(f"Processing directory: {file_path}")
                         process_folder(file_path, output_folder, method, multiple, trim_enabled, process_subfolders)
                 except Exception as e:
-                    print(f"Error processing {file_path}: {e}")
+                    if DEBUG:
+                        print(f"Error processing {file_path}: {e}")
                     # 标记为 error
                     task_files[index] = (file_path, "error")
                     root.after(0, lambda idx=index: update_single_task_status(idx, "error"))
@@ -775,7 +800,8 @@ def execute_async_worker():
         root.after(0, lambda: progress_label.config(text="Done!"))
         
     except Exception as e:
-        print(f"Error in async execute: {e}")
+        if DEBUG:
+            print(f"Error in async execute: {e}")
         root.after(0, lambda: progress_label.config(text="Error!"))
     finally:
         execute.is_running = False
@@ -824,7 +850,8 @@ def handle_quick_drop(event):
                 progress_label.config(text="No images found!")
     except Exception as e:
         progress_label.config(text=f"Error handling quick drop: {str(e)}")
-        print(f"Error handling quick drop: {e}")
+        if DEBUG:
+            print(f"Error handling quick drop: {e}")
 
 def handle_task_list_drop(event):
     try:
@@ -836,7 +863,8 @@ def handle_task_list_drop(event):
         paths = [grp[0] if grp[0] else grp[1] for grp in matches]
         paths = [os.path.normpath(p) for p in paths if os.path.exists(p)]
         if not paths:
-            print("No valid paths found!")
+            if DEBUG:
+                print("No valid paths found!")
             return
         # 对每个路径，收集图片文件，并加入任务列表
         all_new_files = []
@@ -846,7 +874,8 @@ def handle_task_list_drop(event):
             add_to_task_list(all_new_files)
         root.update_idletasks()
     except Exception as e:
-        print(f"Error in handle_task_list_drop: {e}")
+        if DEBUG:
+            print(f"Error in handle_task_list_drop: {e}")
 
 def update_task_display():
     """更新任务显示，首次只显示文件名和状态，尺寸列为--，后台异步批量读取尺寸后再更新UI"""
@@ -877,7 +906,8 @@ def update_task_display():
                     pass  # 忽略单个文件错误
         threading.Thread(target=batch_update_dimensions, daemon=True).start()
     except Exception as e:
-        print(f"Error updating task display: {e}")
+        if DEBUG:
+            print(f"Error updating task display: {e}")
 def remove_selected_task():
     """删除选中的任务（只移除，不刷新全部尺寸）"""
     global task_files
@@ -905,7 +935,8 @@ def remove_selected_task():
                     old_values[0] = f"{idx+1}. {filename}"
                     task_listbox.item(item_id, values=old_values)
     except Exception as e:
-        print(f"Error removing selected tasks: {e}")
+        if DEBUG:
+            print(f"Error removing selected tasks: {e}")
 def calculate_new_dimensions(img_path, multiple, method, trim_enabled):
     """根据用户设置计算图片处理后的预期尺寸"""
     try:
@@ -937,7 +968,8 @@ def calculate_new_dimensions(img_path, multiple, method, trim_enabled):
                 
             return (width, height), (new_width, new_height)
     except Exception as e:
-        print(f"Error calculating dimensions: {e}")
+        if DEBUG:
+            print(f"Error calculating dimensions: {e}")
         return (0, 0), (0, 0)
 
 # 2. 添加窗口置顶功能 (在主窗口创建后添加)
@@ -970,9 +1002,11 @@ def update_target_sizes(*args):
                         orig_dims, new_dims = calculate_new_dimensions(f, multiple, method, trim)
                         task_listbox.set(item_id, "new_size", f"{new_dims[0]}x{new_dims[1]}")
             except Exception as e:
-                print(f"Error updating target sizes: {e}")
+                if DEBUG:
+                    print(f"Error updating target sizes: {e}")
     except Exception as e:
-        print(f"Error in update_target_sizes: {e}")
+        if DEBUG:
+            print(f"Error in update_target_sizes: {e}")
 
 # 绑定参数变更事件
 
@@ -1034,7 +1068,8 @@ try:
         # 如果找不到图标文件，使用文本按钮
         raise FileNotFoundError("Icon files not found")
 except Exception as e:
-    print(f"Error loading pin icons: {e}")
+    if DEBUG:
+        print(f"Error loading pin icons: {e}")
     # 使用文本按钮作为备用
     pin_on_icon = None
     pin_off_icon = None
@@ -1044,7 +1079,8 @@ try:
     if os.path.exists(icon_path):
         root.iconbitmap(icon_path)
 except Exception as e:
-    print(f"Error loading icon: {e}")
+    if DEBUG:
+        print(f"Error loading icon: {e}")
 
 # 添加在标题栏设置后，其他窗口元素之前
 
@@ -1174,7 +1210,8 @@ try:
             default_widths = [200, 100, 100, 80]
             task_listbox.column(col, width=default_widths[i], minwidth=50)
 except Exception as e:
-    print(f"Error setting column widths: {e}")
+    if DEBUG:
+        print(f"Error setting column widths: {e}")
     # 如果恢复列宽失败，使用默认值
     task_listbox.column("name", width=200, minwidth=50)
     task_listbox.column("orig_size", width=100, minwidth=50)
@@ -1211,7 +1248,8 @@ if config.get('AutoLoadDefaultFolder', '1') == '1':
         if new_files:
             add_to_task_list(new_files)
     else:
-        print(f"Input folder not found: {default_input_folder}")
+        if DEBUG:
+            print(f"Input folder not found: {default_input_folder}")
 else:
     # 如果不自动加载，清除输入栏的文字
     input_folder_entry.delete(0, tk.END)
