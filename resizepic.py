@@ -473,11 +473,13 @@ def quick_process(files):
         progress_label.config(text=LANG["QuickDrop already running!"])
         return
     run_pause_btn.config(state="disabled")
+    clear_all_tasks()
+    add_to_task_list(files)
     # 刷新任务列表：将状态为 "done" 的任务重置为 "pending"
-    for index, (file_path, status) in enumerate(task_files):
-        if status == "done":
-            task_files[index] = (file_path, "pending")
-    update_task_display()
+    # for index, (file_path, status) in enumerate(task_files):
+    #     if status == "done":
+    #         task_files[index] = (file_path, "pending")
+    # update_task_display()
 
     # 启动异步处理线程
     processing_thread = threading.Thread(
